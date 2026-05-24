@@ -3,7 +3,7 @@ import path from 'node:path';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
-import { printPlan } from '../lib/diff-render.js';
+import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import {
   computePlan,
@@ -25,7 +25,8 @@ import { topoSortActions } from '../lib/topo-sort.js';
 
 export async function cmdApply(
   autoApprove: boolean,
-  targets: string[] = []
+  targets: string[] = [],
+  opts: PrintPlanOptions = {}
 ): Promise<number> {
   const state = await loadState();
   const configs = await loadAllAgentConfigs();
@@ -118,7 +119,7 @@ export async function cmdApply(
 
   actions = topoSortActions(actions);
   attachDanglingReferenceWarnings(actions, resolutions);
-  printPlan(actions);
+  printPlan(actions, opts);
 
   if (!hasChanges(actions)) {
     // No remote operations, but refresh stale state with noop id/version values.

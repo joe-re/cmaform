@@ -1,5 +1,5 @@
 import { loadAllAgentConfigs } from '../lib/agents.js';
-import { printPlan } from '../lib/diff-render.js';
+import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets } from '../lib/plan.js';
 import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
@@ -12,7 +12,10 @@ import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
 
-export async function cmdPlan(targets: string[] = []): Promise<number> {
+export async function cmdPlan(
+  targets: string[] = [],
+  opts: PrintPlanOptions = {}
+): Promise<number> {
   const state = await loadState();
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
@@ -72,6 +75,6 @@ export async function cmdPlan(targets: string[] = []): Promise<number> {
   // another local agent (would create a dangling reference).
   attachDanglingReferenceWarnings(actions, resolutions);
 
-  printPlan(actions);
+  printPlan(actions, opts);
   return 0;
 }

@@ -22,8 +22,9 @@ function showHelp(): void {
       `  cmaform pull <memstore_id>        # import a remote memory_store (writes manifest.yaml + state)\n` +
       `  cmaform sync                      # rewrite YAML for every entry in state from remote\n` +
       `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
-      `  cmaform plan [target...]          # show diff (target = agents/skills/memory_stores or resource name)\n` +
-      `  cmaform apply [--yes|-y] [target...]\n` +
+      `  cmaform plan [--verbose|-v] [target...]\n` +
+      `                                    # show diff (target = agents/skills/memory_stores or resource name)\n` +
+      `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +
       `\n` +
@@ -54,13 +55,15 @@ async function main(): Promise<number> {
 
   switch (cmd) {
     case 'plan': {
+      const verbose = args.includes('--verbose') || args.includes('-v');
       const targets = args.filter(a => !a.startsWith('-'));
-      return cmdPlan(targets);
+      return cmdPlan(targets, { verbose });
     }
     case 'apply': {
       const autoApprove = args.includes('--yes') || args.includes('-y');
+      const verbose = args.includes('--verbose') || args.includes('-v');
       const targets = args.filter(a => !a.startsWith('-'));
-      return cmdApply(autoApprove, targets);
+      return cmdApply(autoApprove, targets, { verbose });
     }
     case 'pull':
       if (!args[0]) {

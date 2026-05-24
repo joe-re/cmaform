@@ -63,8 +63,8 @@ cmaform apply                                 # 確認 → Anthropic に反映
 | コマンド | 説明 |
 | --- | --- |
 | `cmaform pull <id>` | `agent_*` / `skill_*` / `memstore_*` ID から remote → local / state に取り込む |
-| `cmaform plan [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
-| `cmaform apply [--yes\|-y] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
+| `cmaform plan [--verbose\|-v] [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
 | `cmaform sync` | state にある全 entry を remote から取り直し YAML を再生成 |
 | `cmaform init` | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当) |
 | `cmaform list` | local files / state / remote を並べて表示 |
@@ -82,6 +82,8 @@ cmaform apply skills release-prep        # 全 skill + release-prep agent
 ```
 
 種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores`。
+
+`plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
 個別名を指定して local YAML / state / remote のどこにも見つからない場合は exit code `2` でエラー終了します。種別を指定して該当 0 件の場合はエラーになりません (`0 to add, 0 to change, ...` と出るだけ)。
 

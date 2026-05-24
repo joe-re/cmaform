@@ -161,6 +161,64 @@ function collapseUnchanged(ops: DiffOp[], context: number): RenderOp[] {
   return result;
 }
 
+// Options controlling plan rendering. `verbose` disables the collapse of
+// long-text fields in create actions.
+export interface PrintPlanOptions {
+  verbose?: boolean;
+}
+
+/**
+ * Fields that may contain prose long enough to be worth folding when rendering
+ * a `create` action. Other fields (tools / multiagent / metadata) tend to be
+ * structurally important and are rendered in full.
+ */
+const COLLAPSIBLE_LONG_TEXT_FIELDS = new Set(['system', 'description']);
+const COLLAPSE_PREVIEW_LINES = 3;
+const COLLAPSE_THRESHOLD_LINES = 6;
+
+/**
+ * Render a single (new) field for a create-style action with `+ field: value`.
+ * Single-line scalars are inlined; multi-line values are emitted as a YAML
+ * block with each line prefixed by `+`. Long-text fields are collapsed unless
+ * `verbose` is set.
+ */
+export function formatCreateField(
+  field: string,
+  value: unknown,
+  indent: string,
+  opts: PrintPlanOptions = {}
+): string {
+  const prettified = prettifySentinelsForDisplay(value);
+  const lines = serializeForDiff(prettified);
+
+  if (lines.length === 1 && lines[0].length + field.length < 80) {
+    return `${indent}+ ${field}: ${colorize('green', lines[0])}\n`;
+  }
+
+  const verbose = opts.verbose === true;
+  let displayLines = lines;
+  let hiddenCount = 0;
+  if (
+    !verbose &&
+    COLLAPSIBLE_LONG_TEXT_FIELDS.has(field) &&
+    lines.length > COLLAPSE_THRESHOLD_LINES
+  ) {
+    displayLines = lines.slice(0, COLLAPSE_PREVIEW_LINES);
+    hiddenCount = lines.length - COLLAPSE_PREVIEW_LINES;
+  }
+
+  const out: string[] = [`${indent}+ ${field}:`];
+  for (const line of displayLines) {
+    out.push(`${indent}  ${colorize('green', `+ ${line}`)}`);
+  }
+  if (hiddenCount > 0) {
+    out.push(
+      `${indent}    ${colorize('dim', `... (${hiddenCount} lines hidden; pass --verbose to show)`)}`
+    );
+  }
+  return out.join('\n') + '\n';
+}
+
 export function formatFieldDiff(diff: FieldDiff, indent: string): string {
   // Forward-dependency sentinels are encoded as opaque strings during plan
   // computation; prettify them just before display so the diff shows
@@ -198,7 +256,26 @@ export function formatFieldDiff(diff: FieldDiff, indent: string): string {
   return lines.join('\n') + '\n';
 }
 
-export function printPlan(actions: Action[]): void {
+/**
+ * Field rendering order for agent create diffs. Mirrors COMPARE_FIELDS so that
+ * the layout is symmetric with update diffs.
+ */
+const AGENT_CREATE_FIELD_ORDER = [
+  'name',
+  'model',
+  'description',
+  'system',
+  'tools',
+  'mcp_servers',
+  'skills',
+  'multiagent',
+  'metadata',
+] as const;
+
+export function printPlan(
+  actions: Action[],
+  opts: PrintPlanOptions = {}
+): void {
   let creates = 0;
   let updates = 0;
   let deletes = 0;
@@ -214,7 +291,7 @@ export function printPlan(actions: Action[]): void {
 
   for (const a of actions) {
     switch (a.type) {
-      case 'create':
+      case 'create': {
         process.stdout.write(
           colorize(
             'green',
@@ -223,8 +300,15 @@ export function printPlan(actions: Action[]): void {
             '\n' +
             `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
         );
+        const cfg = a.config as unknown as Record<string, unknown>;
+        for (const field of AGENT_CREATE_FIELD_ORDER) {
+          const value = cfg[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
         creates++;
         break;
+      }
       case 'update':
         process.stdout.write(
           colorize(
@@ -264,6 +348,22 @@ export function printPlan(actions: Action[]): void {
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
             `       hash: ${a.skill.hash.slice(0, 12)}...\n`
         );
+        process.stdout.write(
+          formatCreateField('name', a.skill.skillName, '       ', opts) +
+            formatCreateField(
+              'description',
+              a.skill.description,
+              '       ',
+              opts
+            ) +
+            formatCreateField(
+              'display_title',
+              a.skill.displayTitle,
+              '       ',
+              opts
+            ) +
+            formatCreateField('files', a.skill.files, '       ', opts)
+        );
         skillCreates++;
         break;
       case 'skill_update':
@@ -301,18 +401,24 @@ export function printPlan(actions: Action[]): void {
       case 'skill_noop':
         skillNoops++;
         break;
-      case 'memstore_create':
+      case 'memstore_create': {
         process.stdout.write(
           colorize(
             'green',
             `  [+] create memory_store ${JSON.stringify(a.localName)}`
           ) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n` +
-            `       name: ${JSON.stringify(a.config.name)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
         );
+        const mcfg = a.config as unknown as Record<string, unknown>;
+        for (const field of ['name', 'description', 'metadata']) {
+          const value = mcfg[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
         memCreates++;
         break;
+      }
       case 'memstore_update':
         process.stdout.write(
           colorize(

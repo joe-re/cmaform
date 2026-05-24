@@ -63,8 +63,8 @@ cmaform apply                                 # confirm → push to Anthropic
 | Command | What it does |
 | --- | --- |
 | `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*`) into local files + state |
-| `cmaform plan [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
-| `cmaform apply [--yes\|-y] [target...]` | Show plan, prompt for confirmation, apply, save state |
+| `cmaform plan [--verbose\|-v] [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state |
 | `cmaform sync` | Re-fetch every entry in state from remote and rewrite local YAML |
 | `cmaform init` | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`) |
 | `cmaform list` | Show local files / state / remote side-by-side |
@@ -82,6 +82,8 @@ cmaform apply skills release-prep        # all skills + one agent
 ```
 
 Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores`.
+
+`plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
 If you pass an individual name that doesn't exist anywhere (local YAML, state, or remote), cmaform exits with code `2`. An unmatched kind is fine — it just shows `0 to add, 0 to change, ...`.
 
