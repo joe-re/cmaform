@@ -1,0 +1,16 @@
+name: hello
+model:
+  id: claude-sonnet-4-6
+  speed: standard
+description: Minimal example agent that introduces itself.
+system: |-
+  You are a greeting bot. When asked, introduce yourself in a single sentence.
+tools:
+  - type: agent_toolset_20260401
+    default_config:
+      enabled: true
+      permission_policy:
+        type: always_allow
+    configs: []
+skills: []
+metadata: {}

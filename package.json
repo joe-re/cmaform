@@ -1,0 +1,55 @@
+{
+  "name": "cmaform",
+  "version": "0.1.0",
+  "description": "Terraform-style declarative management for Anthropic Managed Agents, Skills, and Memory Stores.",
+  "keywords": [
+    "anthropic",
+    "claude",
+    "managed-agents",
+    "agents",
+    "skills",
+    "memory-stores",
+    "terraform",
+    "cli",
+    "iac"
+  ],
+  "license": "MIT",
+  "author": "joe-re",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joe-re/cmaform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/joe-re/cmaform/issues"
+  },
+  "homepage": "https://github.com/joe-re/cmaform#readme",
+  "type": "module",
+  "bin": {
+    "cmaform": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
+  }
+}
