@@ -3,20 +3,66 @@ import path from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 
 import { CMAFORM_DIR } from './config.js';
-import type { Action } from './plan.js';
+import type { Action, PlanWarning } from './plan.js';
 import { prettifySentinelsForDisplay } from './resolve.js';
 import type { FieldDiff } from './types.js';
 
+function formatWarningLines(
+  warnings: PlanWarning[] | undefined,
+  targetKind: 'skill' | 'agent'
+): string {
+  if (!warnings || warnings.length === 0) return '';
+  const hintLines =
+    targetKind === 'skill'
+      ? [
+          `      → continuing the delete will leave dangling references in the listed agent(s).`,
+          `      → edit the referrer's YAML (remove the skill from skills[]) before re-running plan.`,
+        ]
+      : [
+          `      → continuing the archive will break delegation from the listed coordinator(s).`,
+          `      → edit the referrer's YAML (remove the agent from multiagent.agents[]) before re-running plan.`,
+        ];
+  const hint = hintLines.map(l => colorize('yellow', l) + '\n').join('');
+  const refs = warnings
+    .map(
+      w =>
+        '       ' +
+        colorizeMany(['bold', 'yellow'], 'WARN:') +
+        ' ' +
+        colorize(
+          'yellow',
+          `still referenced by agent ${JSON.stringify(w.referrer)} (${w.fieldPath})`
+        ) +
+        '\n'
+    )
+    .join('');
+  return refs + hint;
+}
+
+// Terraform-style palette:
+//   green  = create
+//   yellow = change / warning
+//   red    = destroy / delete
+//   dim    = secondary info (collapsed unchanged lines, reasons, etc)
+//   bold   = label emphasis (e.g. "WARN:")
 const ANSI = {
   red: '\x1b[31m',
   green: '\x1b[32m',
+  yellow: '\x1b[33m',
   dim: '\x1b[2m',
+  bold: '\x1b[1m',
   reset: '\x1b[0m',
 } as const;
 
 function colorize(code: keyof typeof ANSI, text: string): string {
   if (!process.stdout.isTTY) return text;
   return ANSI[code] + text + ANSI.reset;
+}
+
+/** Combine multiple ANSI codes (e.g. bold + yellow). */
+function colorizeMany(codes: (keyof typeof ANSI)[], text: string): string {
+  if (!process.stdout.isTTY) return text;
+  return codes.map(c => ANSI[c]).join('') + text + ANSI.reset;
 }
 
 /**
@@ -170,14 +216,22 @@ export function printPlan(actions: Action[]): void {
     switch (a.type) {
       case 'create':
         process.stdout.write(
-          `  [+] create agent  ${JSON.stringify(a.name)}\n` +
+          colorize(
+            'green',
+            `  [+] create agent  ${JSON.stringify(a.name)}`
+          ) +
+            '\n' +
             `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
         );
         creates++;
         break;
       case 'update':
         process.stdout.write(
-          `  [~] update agent  ${JSON.stringify(a.name)} (id=${a.id}, version=${a.currentVersion})\n` +
+          colorize(
+            'yellow',
+            `  [~] update agent  ${JSON.stringify(a.name)} (id=${a.id}, version=${a.currentVersion})`
+          ) +
+            '\n' +
             `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
         );
         for (const d of a.diffs) {
@@ -187,8 +241,13 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'delete':
         process.stdout.write(
-          `  [-] archive agent ${JSON.stringify(a.name)} (id=${a.id})\n` +
-            `       reason: present in state but no local YAML\n`
+          colorize(
+            'red',
+            `  [-] archive agent ${JSON.stringify(a.name)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local YAML')}\n` +
+            formatWarningLines(a.warnings, 'agent')
         );
         deletes++;
         break;
@@ -197,7 +256,11 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'skill_create':
         process.stdout.write(
-          `  [+] create skill  ${JSON.stringify(a.localName)}\n` +
+          colorize(
+            'green',
+            `  [+] create skill  ${JSON.stringify(a.localName)}`
+          ) +
+            '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
             `       hash: ${a.skill.hash.slice(0, 12)}...\n`
         );
@@ -205,7 +268,11 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'skill_update':
         process.stdout.write(
-          `  [~] update skill  ${JSON.stringify(a.localName)} (id=${a.id})\n` +
+          colorize(
+            'yellow',
+            `  [~] update skill  ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
             `       hash: ${a.currentHash.slice(0, 12)}... -> ${a.skill.hash.slice(0, 12)}...\n`
         );
@@ -213,9 +280,21 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'skill_delete':
         process.stdout.write(
-          `  [-] delete skill  ${JSON.stringify(a.localName)} (id=${a.id})\n` +
-            `       reason: present in state but no local skill directory\n` +
-            `       NOTE: skills cannot be archived; all versions will be permanently deleted\n`
+          colorize(
+            'red',
+            `  [-] delete skill  ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local skill directory')}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              'skills cannot be archived; all versions will be permanently deleted'
+            ) +
+            '\n' +
+            formatWarningLines(a.warnings, 'skill')
         );
         skillDeletes++;
         break;
@@ -224,7 +303,11 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'memstore_create':
         process.stdout.write(
-          `  [+] create memory_store ${JSON.stringify(a.localName)}\n` +
+          colorize(
+            'green',
+            `  [+] create memory_store ${JSON.stringify(a.localName)}`
+          ) +
+            '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n` +
             `       name: ${JSON.stringify(a.config.name)}\n`
         );
@@ -232,7 +315,11 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'memstore_update':
         process.stdout.write(
-          `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})\n` +
+          colorize(
+            'yellow',
+            `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
         );
         for (const d of a.diffs) {
@@ -242,9 +329,20 @@ export function printPlan(actions: Action[]): void {
         break;
       case 'memstore_archive':
         process.stdout.write(
-          `  [-] archive memory_store ${JSON.stringify(a.localName)} (id=${a.id})\n` +
-            `       reason: present in state but no local directory\n` +
-            `       NOTE: archive is one-way (cannot be undone); the store's memory data is preserved\n`
+          colorize(
+            'red',
+            `  [-] archive memory_store ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              "archive is one-way (cannot be undone); the store's memory data is preserved"
+            ) +
+            '\n'
         );
         memArchives++;
         break;

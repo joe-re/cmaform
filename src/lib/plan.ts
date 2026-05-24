@@ -17,6 +17,17 @@ import type {
   State,
 } from './types.js';
 
+/**
+ * Surfaced by `plan` / `apply` when a delete / archive action would leave a
+ * dangling reference in another local agent (see lib/warnings.ts).
+ */
+export interface PlanWarning {
+  /** Name of the agent that still references the to-be-deleted resource. */
+  referrer: string;
+  /** Where in the referrer's YAML the reference lives (e.g. `skills[0]`). */
+  fieldPath: string;
+}
+
 export type Action =
   // agents
   | {
@@ -39,7 +50,12 @@ export type Action =
       forwardSkillDeps: string[];
     }
   | { type: 'noop'; name: string; id: string; version: number }
-  | { type: 'delete'; name: string; id: string }
+  | {
+      type: 'delete';
+      name: string;
+      id: string;
+      warnings?: PlanWarning[];
+    }
   // skills
   | { type: 'skill_create'; localName: string; skill: LocalSkill }
   | {
@@ -62,6 +78,7 @@ export type Action =
       type: 'skill_delete';
       localName: string;
       id: string;
+      warnings?: PlanWarning[];
     }
   // memory stores
   | {

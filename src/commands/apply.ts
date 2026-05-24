@@ -11,6 +11,10 @@ import {
   hasChanges,
 } from '../lib/plan.js';
 import {
+  attachDanglingReferenceWarnings,
+  hasDanglingWarnings,
+} from '../lib/warnings.js';
+import {
   buildResolutionContext,
   resolveAgentConfig,
   type ResolvedConfig,
@@ -113,6 +117,7 @@ export async function cmdApply(
   }
 
   actions = topoSortActions(actions);
+  attachDanglingReferenceWarnings(actions, resolutions);
   printPlan(actions);
 
   if (!hasChanges(actions)) {
@@ -163,7 +168,12 @@ export async function cmdApply(
   }
 
   if (!autoApprove) {
-    const ok = await confirm('\nDo you want to perform these actions?');
+    const message = hasDanglingWarnings(actions)
+      ? (process.stdout.isTTY
+          ? '\n\x1b[1m\x1b[33mWARN:\x1b[0m one or more deletes / archives leave dangling references.\nProceed with these dangling deletes?'
+          : '\nWARN: one or more deletes / archives leave dangling references.\nProceed with these dangling deletes?')
+      : '\nDo you want to perform these actions?';
+    const ok = await confirm(message);
     if (!ok) {
       process.stdout.write('Aborted.\n');
       return 1;

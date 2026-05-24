@@ -2,6 +2,7 @@ import { loadAllAgentConfigs } from '../lib/agents.js';
 import { printPlan } from '../lib/diff-render.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets } from '../lib/plan.js';
+import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
 import {
   buildResolutionContext,
   resolveAgentConfig,
@@ -66,6 +67,10 @@ export async function cmdPlan(targets: string[] = []): Promise<number> {
   // Print in apply order — surfaces dependency-induced ordering during
   // bootstrap (skills/sub-agents before their dependents).
   actions = topoSortActions(actions);
+
+  // Flag delete / archive actions whose target is still referenced by
+  // another local agent (would create a dangling reference).
+  attachDanglingReferenceWarnings(actions, resolutions);
 
   printPlan(actions);
   return 0;
