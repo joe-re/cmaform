@@ -1,0 +1,209 @@
+import path from 'node:path';
+
+import {
+  retrieveAgent,
+  writeAgentYamlFromRemote,
+} from '../lib/agents.js';
+import { CMAFORM_DIR, STATE_PATH } from '../lib/config.js';
+import {
+  listMemoryStores,
+  loadAllMemoryStoreConfigs,
+  retrieveMemoryStore,
+  writeMemoryStoreManifestFromRemote,
+} from '../lib/memory-stores.js';
+import {
+  findSkillByDisplayTitle,
+  loadAllSkillConfigs,
+  retrieveSkill,
+} from '../lib/skills.js';
+import { loadState, saveState } from '../lib/state.js';
+
+/**
+ * Re-fetch every agent / skill / memory_store recorded in state from remote.
+ *
+ * agents: fetch from remote, rewrite YAML, refresh the version in state (renames propagate).
+ * skills: the API does not return content, so only the version / display_title in state are
+ *         refreshed. Local SKILL.md files are NOT regenerated (rebuild manually).
+ *
+ * Use cases: bulk-generate YAML in an environment that received only a shared state file,
+ * or rebuild after accidentally deleting local YAML.
+ */
+export async function cmdSync(): Promise<number> {
+  const state = await loadState();
+  const skills = await loadAllSkillConfigs();
+  const memoryStores = await loadAllMemoryStoreConfigs();
+
+  const hasAnything =
+    Object.keys(state.agents).length > 0 ||
+    Object.keys(state.skills).length > 0 ||
+    Object.keys(state.memory_stores).length > 0 ||
+    skills.size > 0 ||
+    memoryStores.size > 0;
+
+  if (!hasAnything) {
+    process.stdout.write(
+      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id>` to import.\n'
+    );
+    return 0;
+  }
+
+  let agentWritten = 0;
+  let agentSkipped = 0;
+  let skillUpdated = 0;
+  let skillSkipped = 0;
+  let skillDiscovered = 0;
+  let memWritten = 0;
+  let memSkipped = 0;
+  let memDiscovered = 0;
+  let stateChanged = false;
+
+  // ----- agents -----
+  for (const name of Object.keys(state.agents)) {
+    const entry = state.agents[name];
+    const remote = await retrieveAgent(entry.id);
+    if (!remote || remote.archived_at) {
+      process.stdout.write(
+        `  [!] skip agent ${JSON.stringify(name)}: remote is archived or missing (id=${entry.id})\n`
+      );
+      agentSkipped++;
+      continue;
+    }
+
+    const filePath = await writeAgentYamlFromRemote(remote);
+    process.stdout.write(
+      `  [+] wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${remote.id}, version=${remote.version})\n`
+    );
+    agentWritten++;
+
+    if (remote.name !== name) {
+      delete state.agents[name];
+      stateChanged = true;
+    }
+    const current = state.agents[remote.name];
+    if (
+      !current ||
+      current.id !== remote.id ||
+      current.version !== remote.version
+    ) {
+      state.agents[remote.name] = { id: remote.id, version: remote.version };
+      stateChanged = true;
+    }
+  }
+
+  // ----- skills (metadata-only) -----
+  for (const localName of Object.keys(state.skills)) {
+    const entry = state.skills[localName];
+    const remote = await retrieveSkill(entry.id);
+    if (!remote) {
+      process.stdout.write(
+        `  [!] skip skill ${JSON.stringify(localName)}: remote not found (id=${entry.id})\n`
+      );
+      skillSkipped++;
+      continue;
+    }
+    if (
+      remote.latest_version !== entry.version ||
+      remote.display_title !== entry.display_title
+    ) {
+      state.skills[localName] = {
+        id: entry.id,
+        version: remote.latest_version,
+        // The API does not return content, so we keep the existing hash.
+        // The next `plan` will compare against local files via this hash.
+        hash: entry.hash,
+        display_title: remote.display_title,
+      };
+      process.stdout.write(
+        `  [~] skill metadata updated: ${JSON.stringify(localName)} (version ${entry.version} -> ${remote.latest_version})\n`
+      );
+      skillUpdated++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [=] skill up-to-date: ${JSON.stringify(localName)} (version=${entry.version})\n`
+      );
+    }
+  }
+
+  // ----- skills (discover) -----
+  // Skills that have a local directory but no state entry: try to find a matching remote and register it.
+  for (const [localName, skill] of skills) {
+    if (state.skills[localName]) continue;
+    const remote = await findSkillByDisplayTitle(skill.displayTitle);
+    if (remote) {
+      state.skills[localName] = {
+        id: remote.id,
+        version: remote.latest_version,
+        hash: skill.hash,
+        display_title: remote.display_title,
+      };
+      process.stdout.write(
+        `  [+] discovered skill: ${JSON.stringify(localName)} (id=${remote.id}, version=${remote.latest_version})\n`
+      );
+      skillDiscovered++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [?] not found on remote: skill ${JSON.stringify(localName)} (display_title=${JSON.stringify(skill.displayTitle)})\n`
+      );
+    }
+  }
+
+  // ----- memory stores -----
+  for (const localName of Object.keys(state.memory_stores)) {
+    const entry = state.memory_stores[localName];
+    const remote = await retrieveMemoryStore(entry.id);
+    if (!remote || remote.archived_at) {
+      process.stdout.write(
+        `  [!] skip memory_store ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+      );
+      memSkipped++;
+      continue;
+    }
+    const manifestPath = await writeMemoryStoreManifestFromRemote(
+      remote,
+      localName
+    );
+    process.stdout.write(
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+    );
+    memWritten++;
+    if (entry.name !== remote.name) {
+      state.memory_stores[localName] = { id: entry.id, name: remote.name };
+      stateChanged = true;
+    }
+  }
+  // For local manifests without state entries, discover via name match.
+  for (const [localName, { config }] of memoryStores) {
+    if (state.memory_stores[localName]) continue;
+    const remotes = await listMemoryStores();
+    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    if (remote) {
+      state.memory_stores[localName] = { id: remote.id, name: remote.name };
+      process.stdout.write(
+        `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`
+      );
+      memDiscovered++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [?] not found on remote: memory_store ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`
+      );
+    }
+  }
+
+  if (stateChanged) {
+    await saveState(state);
+    process.stdout.write(
+      `\nState updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
+    );
+  }
+  process.stdout.write(
+    `\nSync complete:\n` +
+      `  agents:        ${agentWritten} written, ${agentSkipped} skipped\n` +
+      `  skills:        ${skillUpdated} updated, ${skillDiscovered} discovered, ${skillSkipped} skipped\n` +
+      `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
+      `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`
+  );
+  return 0;
+}

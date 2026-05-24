@@ -1,0 +1,277 @@
+import {
+  fieldDiffs,
+  resolveRemote,
+} from './agents.js';
+import {
+  memoryStoreFieldDiffs,
+  retrieveMemoryStore,
+} from './memory-stores.js';
+import { findSkillByDisplayTitle } from './skills.js';
+import type {
+  AgentConfig,
+  FieldDiff,
+  LocalSkill,
+  MemoryStoreConfig,
+  RemoteMemoryStore,
+  State,
+} from './types.js';
+
+export type Action =
+  // agents
+  | { type: 'create'; name: string; config: AgentConfig; filePath: string }
+  | {
+      type: 'update';
+      name: string;
+      id: string;
+      config: AgentConfig;
+      filePath: string;
+      currentVersion: number;
+      diffs: FieldDiff[];
+    }
+  | { type: 'noop'; name: string; id: string; version: number }
+  | { type: 'delete'; name: string; id: string }
+  // skills
+  | { type: 'skill_create'; localName: string; skill: LocalSkill }
+  | {
+      type: 'skill_update';
+      localName: string;
+      id: string;
+      skill: LocalSkill;
+      currentVersion: string;
+      currentHash: string;
+    }
+  | {
+      type: 'skill_noop';
+      localName: string;
+      id: string;
+      version: string;
+      hash: string;
+      displayTitle: string;
+    }
+  | {
+      type: 'skill_delete';
+      localName: string;
+      id: string;
+    }
+  // memory stores
+  | {
+      type: 'memstore_create';
+      localName: string;
+      config: MemoryStoreConfig;
+      dirPath: string;
+    }
+  | {
+      type: 'memstore_update';
+      localName: string;
+      id: string;
+      config: MemoryStoreConfig;
+      remote: RemoteMemoryStore;
+      dirPath: string;
+      diffs: FieldDiff[];
+    }
+  | {
+      type: 'memstore_noop';
+      localName: string;
+      id: string;
+      name: string;
+    }
+  | {
+      type: 'memstore_archive';
+      localName: string;
+      id: string;
+    };
+
+export async function computePlan(
+  state: State,
+  configs: Map<string, { config: AgentConfig; filePath: string }>,
+  skills: Map<string, LocalSkill>,
+  memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>
+): Promise<Action[]> {
+  const actions: Action[] = [];
+
+  // ----- agents -----
+  for (const [name, { config, filePath }] of configs) {
+    const remote = await resolveRemote(name, state);
+    if (!remote || remote.archived_at) {
+      actions.push({ type: 'create', name, config, filePath });
+      continue;
+    }
+    const diffs = fieldDiffs(config, remote);
+    if (diffs.length === 0) {
+      actions.push({
+        type: 'noop',
+        name,
+        id: remote.id,
+        version: remote.version,
+      });
+    } else {
+      actions.push({
+        type: 'update',
+        name,
+        id: remote.id,
+        config,
+        filePath,
+        currentVersion: remote.version,
+        diffs,
+      });
+    }
+  }
+  for (const [name, entry] of Object.entries(state.agents)) {
+    if (!configs.has(name)) {
+      actions.push({ type: 'delete', name, id: entry.id });
+    }
+  }
+
+  // ----- skills -----
+  for (const [localName, skill] of skills) {
+    const tracked = state.skills[localName];
+    if (!tracked) {
+      // Not tracked in state, but if a remote skill with the same display_title exists, treat as update.
+      const remote = await findSkillByDisplayTitle(skill.displayTitle);
+      if (remote) {
+        actions.push({
+          type: 'skill_update',
+          localName,
+          id: remote.id,
+          skill,
+          currentVersion: remote.latest_version,
+          currentHash: '(unknown)',
+        });
+      } else {
+        actions.push({ type: 'skill_create', localName, skill });
+      }
+      continue;
+    }
+
+    if (tracked.hash === skill.hash) {
+      actions.push({
+        type: 'skill_noop',
+        localName,
+        id: tracked.id,
+        version: tracked.version,
+        hash: tracked.hash,
+        displayTitle: tracked.display_title,
+      });
+    } else {
+      actions.push({
+        type: 'skill_update',
+        localName,
+        id: tracked.id,
+        skill,
+        currentVersion: tracked.version,
+        currentHash: tracked.hash,
+      });
+    }
+  }
+  for (const [localName, entry] of Object.entries(state.skills)) {
+    if (!skills.has(localName)) {
+      actions.push({ type: 'skill_delete', localName, id: entry.id });
+    }
+  }
+
+  // ----- memory stores -----
+  for (const [localName, { config, dirPath }] of memoryStores) {
+    const tracked = state.memory_stores[localName];
+    const remote = tracked ? await retrieveMemoryStore(tracked.id) : null;
+    if (!remote || remote.archived_at) {
+      actions.push({ type: 'memstore_create', localName, config, dirPath });
+      continue;
+    }
+    const diffs = memoryStoreFieldDiffs(config, remote);
+    if (diffs.length === 0) {
+      actions.push({
+        type: 'memstore_noop',
+        localName,
+        id: remote.id,
+        name: remote.name,
+      });
+    } else {
+      actions.push({
+        type: 'memstore_update',
+        localName,
+        id: remote.id,
+        config,
+        remote,
+        dirPath,
+        diffs,
+      });
+    }
+  }
+  for (const [localName, entry] of Object.entries(state.memory_stores)) {
+    if (!memoryStores.has(localName)) {
+      actions.push({ type: 'memstore_archive', localName, id: entry.id });
+    }
+  }
+
+  return actions;
+}
+
+// ---------------- target filtering ----------------
+
+type ResourceKind = 'agent' | 'skill' | 'memory_store';
+
+function actionResourceName(a: Action): string {
+  if (
+    a.type === 'create' ||
+    a.type === 'update' ||
+    a.type === 'noop' ||
+    a.type === 'delete'
+  ) {
+    return a.name;
+  }
+  return a.localName;
+}
+
+function actionResourceKind(a: Action): ResourceKind {
+  if (a.type.startsWith('skill_')) return 'skill';
+  if (a.type.startsWith('memstore_')) return 'memory_store';
+  return 'agent';
+}
+
+const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
+  agent: 'agent',
+  agents: 'agent',
+  skill: 'skill',
+  skills: 'skill',
+  memory_store: 'memory_store',
+  memory_stores: 'memory_store',
+  memstore: 'memory_store',
+  memstores: 'memory_store',
+};
+
+export function filterActionsByTargets(
+  actions: Action[],
+  targets: string[]
+): { filtered: Action[]; unmatched: string[] } {
+  const kindTargets = new Set<ResourceKind>();
+  const nameTargets = new Set<string>();
+  for (const t of targets) {
+    const kind = RESOURCE_KIND_ALIASES[t];
+    if (kind) {
+      kindTargets.add(kind);
+    } else {
+      nameTargets.add(t);
+    }
+  }
+
+  const matchedNames = new Set<string>();
+  const filtered: Action[] = [];
+  for (const a of actions) {
+    const kind = actionResourceKind(a);
+    const name = actionResourceName(a);
+    if (kindTargets.has(kind) || nameTargets.has(name)) {
+      if (nameTargets.has(name)) matchedNames.add(name);
+      filtered.push(a);
+    }
+  }
+
+  const unmatched = [...nameTargets].filter(n => !matchedNames.has(n));
+  return { filtered, unmatched };
+}
+
+export function hasChanges(actions: Action[]): boolean {
+  return actions.some(
+    a =>
+      a.type !== 'noop' && a.type !== 'skill_noop' && a.type !== 'memstore_noop'
+  );
+}
