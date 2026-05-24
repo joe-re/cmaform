@@ -37,13 +37,14 @@ export async function cmdPull(query: string): Promise<number> {
     return 1;
   }
 
-  const filePath = await writeAgentYamlFromRemote(agent);
+  const state = await loadState();
+  // Pre-register so that ref-rewriting can see this agent's own state (rare,
+  // but harmless if multiagent.agents references itself).
+  state.agents[agent.name] = { id: agent.id, version: agent.version };
+  const filePath = await writeAgentYamlFromRemote(agent, state);
   process.stderr.write(
     `==> wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${agent.id}, version=${agent.version})\n`
   );
-
-  const state = await loadState();
-  state.agents[agent.name] = { id: agent.id, version: agent.version };
   await saveState(state);
   process.stderr.write(
     `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`

@@ -10,8 +10,14 @@ import {
   filterActionsByTargets,
   hasChanges,
 } from '../lib/plan.js';
+import {
+  buildResolutionContext,
+  resolveAgentConfig,
+  type ResolvedConfig,
+} from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
+import { topoSortActions } from '../lib/topo-sort.js';
 
 export async function cmdApply(
   autoApprove: boolean,
@@ -21,7 +27,33 @@ export async function cmdApply(
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
-  const allActions = await computePlan(state, configs, skills, memoryStores);
+
+  const ctx = buildResolutionContext(state, configs, skills);
+  const resolutions = new Map<string, ResolvedConfig>();
+  const missing: string[] = [];
+  for (const [name, { config }] of configs) {
+    const r = await resolveAgentConfig(config, ctx);
+    resolutions.set(name, r);
+    for (const m of r.missingAgentRefs)
+      missing.push(`agent "${name}" -> agent "${m}"`);
+    for (const m of r.missingSkillRefs)
+      missing.push(`agent "${name}" -> skill "${m}"`);
+  }
+  if (missing.length > 0) {
+    process.stderr.write(
+      `error: the following name-based references could not be resolved (not in state, remote, or local config):\n`
+    );
+    for (const m of missing) process.stderr.write(`  ${m}\n`);
+    return 2;
+  }
+
+  const allActions = await computePlan(
+    state,
+    configs,
+    skills,
+    memoryStores,
+    resolutions
+  );
 
   let actions = allActions;
   if (targets.length > 0) {
@@ -36,8 +68,51 @@ export async function cmdApply(
     process.stdout.write(
       `(filter: ${targets.map(t => JSON.stringify(t)).join(', ')})\n`
     );
+
+    // Target filtering can drop forward dependencies. Surface them as a
+    // hard error so the user adds them to the target list explicitly
+    // (rather than failing late inside executeActions).
+    const inTarget = new Set<string>();
+    for (const a of actions) {
+      if (
+        a.type === 'create' ||
+        a.type === 'update' ||
+        a.type === 'noop' ||
+        a.type === 'delete'
+      ) {
+        inTarget.add(`agent:${a.name}`);
+      } else if (a.type.startsWith('skill_')) {
+        inTarget.add(`skill:${(a as { localName: string }).localName}`);
+      }
+    }
+    const droppedDeps: string[] = [];
+    for (const a of actions) {
+      if (a.type === 'create' || a.type === 'update') {
+        for (const dep of a.forwardAgentDeps) {
+          if (!inTarget.has(`agent:${dep}`)) {
+            droppedDeps.push(`agent "${a.name}" -> agent "${dep}"`);
+          }
+        }
+        for (const dep of a.forwardSkillDeps) {
+          if (!inTarget.has(`skill:${dep}`)) {
+            droppedDeps.push(`agent "${a.name}" -> skill "${dep}"`);
+          }
+        }
+      }
+    }
+    if (droppedDeps.length > 0) {
+      process.stderr.write(
+        `error: target set is missing forward dependencies (they will be created in this run):\n`
+      );
+      for (const d of droppedDeps) process.stderr.write(`  ${d}\n`);
+      process.stderr.write(
+        `Add the dependency to your target list, or omit the target filter.\n`
+      );
+      return 2;
+    }
   }
 
+  actions = topoSortActions(actions);
   printPlan(actions);
 
   if (!hasChanges(actions)) {

@@ -166,13 +166,57 @@ cmaform computes a SHA-256 hash of the entire directory and compares it against 
 # agents/foo.yaml
 skills:
   - type: anthropic
-    skill_id: xlsx
+    skill_id: xlsx                   # well-known Anthropic skills stay id-based
   - type: custom
-    skill_id: skill_01XXXXXX         # copy from state.skills[<localName>].id after apply
-    version: latest
+    name: slack-mention-lookup       # = local directory name under skills/
+    version: latest                  # optional
 ```
 
+The legacy `skill_id: skill_01XXXXXX` form is still accepted for `type: custom`. See
+[Name-based references](#-name-based-references) below for resolution semantics.
+
 > ⚠️ Skills have no archive concept. Deleting the directory and running `apply` permanently deletes the skill **and all of its versions**.
+
+### 🔗 Name-based references
+
+`multiagent.agents[]` and `skills[]` accept references by **logical name** in addition to raw IDs. Names are resolved at `plan` / `apply` time so you can ship a YAML repo without any workspace-specific IDs and bootstrap a new workspace with a single `cmaform apply`.
+
+```yaml
+# agents/coordinator.yaml
+multiagent:
+  type: coordinator
+  agents:
+    - type: agent
+      name: spec-qa          # = the `name` field of agents/spec-qa.yaml
+    - type: agent
+      name: release-prep
+      version: latest        # optional
+skills:
+  - type: custom
+    name: slack-mention-lookup   # = the directory name under skills/
+```
+
+Resolution order for each name:
+
+1. `cmaform.state.json` — if the resource is already tracked locally, use its ID.
+2. Remote — `findAgentByName` / `findSkillByDisplayTitle` (cached per run).
+3. Local apply set — if a YAML for that name exists locally **and** is being created in this run, the reference is treated as a **forward dependency**. cmaform substitutes a placeholder during plan and replaces it with the real ID right after the dependency is created.
+
+If none of the above match, `plan` / `apply` fails with an error pointing at the unresolved name.
+
+#### Topological apply ordering
+
+When a coordinator agent has name-based references to other resources in the same apply set, cmaform reorders actions so that sub-agents and skills are created before the coordinator that depends on them. Cycles among `multiagent.agents` references are detected and surfaced as errors.
+
+#### `pull` / `sync` write back in name form
+
+When writing remote agents back to YAML, cmaform replaces any `id` / `skill_id` that resolves to a known local name with the name form. IDs for resources not tracked in state are kept as-is.
+
+#### Legacy ID form
+
+Existing `{ type: agent, id: agent_... }` and `{ type: custom, skill_id: skill_... }` references continue to work unchanged. The two forms are mutually exclusive within a single entry (`name` *or* `id`).
+
+`type: anthropic` skills (well-known IDs like `xlsx`) always use the `skill_id` form. `type: self` agent references are unchanged.
 
 ### Memory Store (`memory_stores/<localName>/manifest.yaml`)
 

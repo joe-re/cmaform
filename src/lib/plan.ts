@@ -6,6 +6,7 @@ import {
   memoryStoreFieldDiffs,
   retrieveMemoryStore,
 } from './memory-stores.js';
+import type { ResolvedConfig } from './resolve.js';
 import { findSkillByDisplayTitle } from './skills.js';
 import type {
   AgentConfig,
@@ -18,7 +19,14 @@ import type {
 
 export type Action =
   // agents
-  | { type: 'create'; name: string; config: AgentConfig; filePath: string }
+  | {
+      type: 'create';
+      name: string;
+      config: AgentConfig;
+      filePath: string;
+      forwardAgentDeps: string[];
+      forwardSkillDeps: string[];
+    }
   | {
       type: 'update';
       name: string;
@@ -27,6 +35,8 @@ export type Action =
       filePath: string;
       currentVersion: number;
       diffs: FieldDiff[];
+      forwardAgentDeps: string[];
+      forwardSkillDeps: string[];
     }
   | { type: 'noop'; name: string; id: string; version: number }
   | { type: 'delete'; name: string; id: string }
@@ -85,18 +95,33 @@ export async function computePlan(
   state: State,
   configs: Map<string, { config: AgentConfig; filePath: string }>,
   skills: Map<string, LocalSkill>,
-  memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>
+  memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>,
+  resolutions: Map<string, ResolvedConfig>
 ): Promise<Action[]> {
   const actions: Action[] = [];
 
   // ----- agents -----
-  for (const [name, { config, filePath }] of configs) {
+  for (const [name, { filePath }] of configs) {
+    const resolution = resolutions.get(name);
+    // The resolved config (name refs replaced with id refs / sentinels) is
+    // what we both diff against remote and ultimately send to the API.
+    const resolvedConfig = resolution?.config ?? configs.get(name)!.config;
+    const forwardAgentDeps = resolution?.forwardAgentDeps ?? [];
+    const forwardSkillDeps = resolution?.forwardSkillDeps ?? [];
+
     const remote = await resolveRemote(name, state);
     if (!remote || remote.archived_at) {
-      actions.push({ type: 'create', name, config, filePath });
+      actions.push({
+        type: 'create',
+        name,
+        config: resolvedConfig,
+        filePath,
+        forwardAgentDeps,
+        forwardSkillDeps,
+      });
       continue;
     }
-    const diffs = fieldDiffs(config, remote);
+    const diffs = fieldDiffs(resolvedConfig, remote);
     if (diffs.length === 0) {
       actions.push({
         type: 'noop',
@@ -109,10 +134,12 @@ export async function computePlan(
         type: 'update',
         name,
         id: remote.id,
-        config,
+        config: resolvedConfig,
         filePath,
         currentVersion: remote.version,
         diffs,
+        forwardAgentDeps,
+        forwardSkillDeps,
       });
     }
   }

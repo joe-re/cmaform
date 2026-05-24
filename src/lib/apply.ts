@@ -11,18 +11,36 @@ import {
   createMemoryStore,
   updateMemoryStore,
 } from './memory-stores.js';
+import type { Action } from './plan.js';
+import { substitutePendingIds } from './resolve.js';
 import {
   archiveSkill,
   createSkill,
   uploadSkillVersion,
 } from './skills.js';
-import type { Action } from './plan.js';
 import type { State } from './types.js';
 
 export async function executeActions(
   actions: Action[],
   state: State
 ): Promise<void> {
+  // IDs newly minted during this run. Used to resolve forward dependencies
+  // (sentinel placeholders in resolved configs) right before sending each
+  // action's apply params to the API.
+  const createdAgents = new Map<string, string>();
+  const createdSkills = new Map<string, string>();
+
+  // For agents/skills that already existed at plan time but are being
+  // updated in this run, their ids are already in resolution context →
+  // sentinels in their dependents' configs won't exist for them.
+  // We still seed the maps with state so that defensive substitution is a no-op.
+  for (const [name, entry] of Object.entries(state.agents)) {
+    createdAgents.set(name, entry.id);
+  }
+  for (const [localName, entry] of Object.entries(state.skills)) {
+    createdSkills.set(localName, entry.id);
+  }
+
   for (const a of actions) {
     if (a.type === 'noop') {
       // Existing agent already matching remote — just record it in state, skip API calls.
@@ -48,8 +66,14 @@ export async function executeActions(
         process.stdout.write(
           `  [+] creating agent ${JSON.stringify(a.name)}...`
         );
-        const created = await createAgent(toApplyParams(a.config));
+        const finalConfig = substitutePendingIds(
+          a.config,
+          createdAgents,
+          createdSkills
+        );
+        const created = await createAgent(toApplyParams(finalConfig));
         state.agents[a.name] = { id: created.id, version: created.version };
+        createdAgents.set(a.name, created.id);
         process.stdout.write(
           ` ok (id=${created.id}, version=${created.version})\n`
         );
@@ -57,12 +81,18 @@ export async function executeActions(
         process.stdout.write(
           `  [~] updating agent ${JSON.stringify(a.name)}...`
         );
+        const finalConfig = substitutePendingIds(
+          a.config,
+          createdAgents,
+          createdSkills
+        );
         const updated = await updateAgent(
           a.id,
           a.currentVersion,
-          toApplyParams(a.config)
+          toApplyParams(finalConfig)
         );
         state.agents[a.name] = { id: updated.id, version: updated.version };
+        createdAgents.set(a.name, updated.id);
         process.stdout.write(
           ` ok (version ${a.currentVersion} -> ${updated.version})\n`
         );
@@ -84,6 +114,7 @@ export async function executeActions(
           hash: a.skill.hash,
           display_title: created.display_title,
         };
+        createdSkills.set(a.localName, created.id);
         process.stdout.write(
           ` ok (id=${created.id}, version=${created.latest_version})\n`
         );

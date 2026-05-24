@@ -5,6 +5,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { AGENTS_DIR } from './config.js';
+import {
+  rewriteAgentRefsToNameForm,
+  rewriteSkillRefsToNameForm,
+} from './resolve.js';
 import { anthropic, isSDKNotFound } from './sdk.js';
 import type {
   AgentConfig,
@@ -75,10 +79,31 @@ export async function findFileByName(name: string): Promise<string | null> {
  * Serialize a remote agent to YAML and write it under agents/. Shared by pull and sync.
  * If a YAML file with the same `name` already exists it is overwritten; otherwise a new
  * file is created with a slug-based filename.
+ *
+ * When a `state` is supplied, any `multiagent.agents[]` / `skills[]` entry whose ID is
+ * tracked in state is rewritten back to the human-friendly `name:` form. Pass `null`
+ * (or omit) to keep raw IDs.
  */
 export async function writeAgentYamlFromRemote(
-  agent: RemoteAgent
+  agent: RemoteAgent,
+  state: State | null = null
 ): Promise<string> {
+  const multiagent =
+    state && agent.multiagent
+      ? {
+          ...agent.multiagent,
+          agents:
+            (rewriteAgentRefsToNameForm(
+              agent.multiagent.agents,
+              state
+            ) as typeof agent.multiagent.agents) ?? agent.multiagent.agents,
+        }
+      : agent.multiagent;
+
+  const skills = state
+    ? (rewriteSkillRefsToNameForm(agent.skills, state) ?? agent.skills)
+    : agent.skills;
+
   const out = {
     name: agent.name,
     model: agent.model,
@@ -86,8 +111,8 @@ export async function writeAgentYamlFromRemote(
     system: agent.system ?? undefined,
     mcp_servers: agent.mcp_servers,
     tools: agent.tools,
-    skills: agent.skills,
-    multiagent: agent.multiagent,
+    skills,
+    multiagent,
     metadata: agent.metadata,
   };
 

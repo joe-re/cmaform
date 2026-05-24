@@ -69,7 +69,7 @@ export async function cmdSync(): Promise<number> {
       continue;
     }
 
-    const filePath = await writeAgentYamlFromRemote(remote);
+    const filePath = await writeAgentYamlFromRemote(remote, state);
     process.stdout.write(
       `  [+] wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${remote.id}, version=${remote.version})\n`
     );

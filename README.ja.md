@@ -166,13 +166,55 @@ cmaform はディレクトリ配下の全ファイルから SHA-256 ハッシュ
 # agents/foo.yaml
 skills:
   - type: anthropic
-    skill_id: xlsx
+    skill_id: xlsx                   # Anthropic 提供 skill は ID 形式のまま
   - type: custom
-    skill_id: skill_01XXXXXX         # apply 後に state.skills[<localName>].id を見て転記
-    version: latest
+    name: slack-mention-lookup       # = skills/ 配下のディレクトリ名
+    version: latest                  # 省略可
 ```
 
+従来の `skill_id: skill_01XXXXXX` 形式 (`type: custom`) も引き続き使えます。解決ルールは下の [Name-based references (論理名参照)](#-name-based-references-論理名参照) を参照してください。
+
 > ⚠️ Skill には archive 概念がありません。ディレクトリを消して `apply` を実行すると、**全 version ごと完全削除**されます。
+
+### 🔗 Name-based references (論理名参照)
+
+`multiagent.agents[]` と `skills[]` は raw ID 直書きに加え、**論理名 (logical name)** での参照を受け付けます。論理名は `plan` / `apply` 時に解決されるため、workspace 固有 ID を YAML に書き込まずに済み、新規 workspace へ移しても `cmaform apply` 一発でブートストラップできます。
+
+```yaml
+# agents/coordinator.yaml
+multiagent:
+  type: coordinator
+  agents:
+    - type: agent
+      name: spec-qa          # = agents/spec-qa.yaml の `name` フィールド
+    - type: agent
+      name: release-prep
+      version: latest        # 省略可
+skills:
+  - type: custom
+    name: slack-mention-lookup   # = skills/ 配下のディレクトリ名
+```
+
+論理名の解決順序:
+
+1. `cmaform.state.json` — 既に local で track されていればその ID を使う
+2. Remote — `findAgentByName` / `findSkillByDisplayTitle` (run 内でキャッシュ)
+3. 同 run の apply セット — 当該 name の YAML が local にあり、今回作成される予定であれば **forward dependency** として扱う。plan 中は placeholder で表示し、依存先が作成された直後に実 ID で置換する
+4. いずれにも当たらない場合は `plan` / `apply` を中断し、未解決の name を明示
+
+#### 適用順序 (topological sort)
+
+coordinator が同じ apply セット内の sub-agent / skill を名前参照しているとき、依存される側 (sub-agent / skill) が先に apply されるよう並べ替えます。`multiagent.agents` 間の循環参照は防御的に検出してエラーになります。
+
+#### `pull` / `sync` での書き戻し
+
+remote から YAML を書き出す際、`id` / `skill_id` のうち state で track されているものは自動的に `name:` 形式に置換されます。state に無い ID はそのまま `id` 形式で残します。
+
+#### 既存 ID 形式との互換
+
+既存の `{ type: agent, id: agent_... }` / `{ type: custom, skill_id: skill_... }` 形式はそのまま動作します。1 つのエントリで両形式は排他です (`name` か `id` のどちらか一方)。
+
+`type: anthropic` の skill (`xlsx` のような well-known ID) は引き続き `skill_id` 形式を使ってください。`type: self` の agent 参照は変更ありません。
 
 ### Memory Store (`memory_stores/<localName>/manifest.yaml`)
 

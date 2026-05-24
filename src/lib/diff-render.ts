@@ -4,6 +4,7 @@ import { stringify as stringifyYaml } from 'yaml';
 
 import { CMAFORM_DIR } from './config.js';
 import type { Action } from './plan.js';
+import { prettifySentinelsForDisplay } from './resolve.js';
 import type { FieldDiff } from './types.js';
 
 const ANSI = {
@@ -95,8 +96,11 @@ function collapseUnchanged(ops: DiffOp[], context: number): RenderOp[] {
 }
 
 export function formatFieldDiff(diff: FieldDiff, indent: string): string {
-  const oldLines = serializeForDiff(diff.oldValue);
-  const newLines = serializeForDiff(diff.newValue);
+  // Forward-dependency sentinels are encoded as opaque strings during plan
+  // computation; prettify them just before display so the diff shows
+  // "<pending: agent foo>" instead of "__cmaform_pending_agent__:foo".
+  const oldLines = serializeForDiff(prettifySentinelsForDisplay(diff.oldValue));
+  const newLines = serializeForDiff(prettifySentinelsForDisplay(diff.newValue));
 
   // Short single-line scalars are rendered inline.
   if (
