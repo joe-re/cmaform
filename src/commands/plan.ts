@@ -16,6 +16,7 @@ import {
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
+import { loadAllVaultConfigs } from '../lib/vaults.js';
 
 export async function cmdPlan(
   targets: string[] = [],
@@ -26,6 +27,7 @@ export async function cmdPlan(
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
+  const vaults = await loadAllVaultConfigs();
 
   // Resolve every agent's `multiagent.agents[]` and `skills[]` references
   // (name → id, with forward-dep sentinels for refs that point inside this
@@ -60,6 +62,7 @@ export async function cmdPlan(
     skills,
     memoryStores,
     environments,
+    vaults,
     resolutions
   );
 

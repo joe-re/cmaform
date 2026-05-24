@@ -22,6 +22,11 @@ import { loadState, saveState } from '../lib/state.js';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
+import {
+  listVaults,
+  loadAllVaultConfigs,
+  retrieveVault,
+} from '../lib/vaults.js';
 
 /**
  * Initialize / reconcile the local state file against the current remote. Never writes to remote.
@@ -41,6 +46,7 @@ export async function cmdInit(): Promise<number> {
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
+  const vaults = await loadAllVaultConfigs();
 
   let changed = 0;
 
@@ -188,6 +194,47 @@ export async function cmdInit(): Promise<number> {
       state.environments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
         `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`
+      );
+      changed++;
+    }
+  }
+
+  // ----- vaults -----
+  for (const [localName, entry] of Object.entries(state.vaults)) {
+    const remote = await retrieveVault(entry.id);
+    if (!remote || remote.archived_at) {
+      delete state.vaults[localName];
+      process.stdout.write(
+        `  [-] removed from state: vault ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`
+      );
+      changed++;
+      continue;
+    }
+    if (remote.display_name !== entry.display_name) {
+      state.vaults[localName] = {
+        ...entry,
+        display_name: remote.display_name,
+      };
+      process.stdout.write(
+        `  [~] vault display_name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.display_name)} -> ${JSON.stringify(remote.display_name)})\n`
+      );
+      changed++;
+    }
+  }
+  for (const [localName, vault] of vaults) {
+    if (state.vaults[localName]) continue;
+    const remotes = await listVaults();
+    const remote = remotes.find(
+      r => r.display_name === vault.config.display_name && !r.archived_at
+    );
+    if (remote) {
+      state.vaults[localName] = {
+        id: remote.id,
+        display_name: remote.display_name,
+        credentials: {},
+      };
+      process.stdout.write(
+        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`
       );
       changed++;
     }

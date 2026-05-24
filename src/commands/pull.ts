@@ -21,6 +21,7 @@ import {
 } from '../lib/memory-stores.js';
 import { hashSkillDir, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
+import { retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
 
 export async function cmdPull(query: string): Promise<number> {
   if (query.startsWith('skill_')) {
@@ -32,10 +33,13 @@ export async function cmdPull(query: string): Promise<number> {
   if (query.startsWith('env_')) {
     return cmdPullEnvironment(query);
   }
+  if (query.startsWith('vlt_')) {
+    return cmdPullVault(query);
+  }
   if (!query.startsWith('agent_')) {
     process.stderr.write(
       formatErrorHeadline(
-        `pull expects an ID starting with 'agent_', 'skill_', 'memstore_', or 'env_' (got: ${JSON.stringify(query)})`
+        `pull expects an ID starting with 'agent_', 'skill_', 'memstore_', 'env_', or 'vlt_' (got: ${JSON.stringify(query)})`
       ) + '\n'
     );
     return 2;
@@ -160,6 +164,55 @@ async function cmdPullEnvironment(envId: string): Promise<number> {
   );
 
   state.environments[localName] = { id: remote.id, name: remote.name };
+  await saveState(state);
+  process.stderr.write(
+    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
+  );
+  return 0;
+}
+
+/**
+ * Import a remote vault (by vlt_id), generating `vaults/<localName>/manifest.yaml`
+ * and registering it in state. Credentials are NOT pulled: secret material is
+ * write-only on the Anthropic API, so cmaform cannot reconstruct
+ * credentials/*.yaml. Use `cmaform list` to see the credential IDs that
+ * already exist on the vault.
+ */
+async function cmdPullVault(vaultId: string): Promise<number> {
+  const remote = await retrieveVault(vaultId);
+  if (!remote) {
+    process.stderr.write(
+      formatErrorHeadline(`vault not found: ${vaultId}`) + '\n'
+    );
+    return 1;
+  }
+
+  const state = await loadState();
+  let localName: string | null = null;
+  for (const [name, entry] of Object.entries(state.vaults)) {
+    if (entry.id === remote.id) {
+      localName = name;
+      break;
+    }
+  }
+  if (!localName) {
+    localName = remote.display_name.replace(/[/\\\s]+/g, '-');
+  }
+
+  const manifestPath = await writeVaultManifestFromRemote(remote, localName);
+  process.stderr.write(
+    `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+  );
+  process.stderr.write(
+    `==> NOTE: credential secret values are not retrievable from the API; credentials/*.yaml is not regenerated.\n`
+  );
+
+  const existing = state.vaults[localName];
+  state.vaults[localName] = {
+    id: remote.id,
+    display_name: remote.display_name,
+    credentials: existing?.credentials ?? {},
+  };
   await saveState(state);
   process.stderr.write(
     `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`

@@ -12,6 +12,7 @@ export async function loadState(): Promise<State> {
       skills: parsed?.skills ?? {},
       memory_stores: parsed?.memory_stores ?? {},
       environments: parsed?.environments ?? {},
+      vaults: parsed?.vaults ?? {},
     };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -20,6 +21,7 @@ export async function loadState(): Promise<State> {
         skills: {},
         memory_stores: {},
         environments: {},
+        vaults: {},
       };
     }
     throw err;
@@ -32,6 +34,7 @@ export async function saveState(state: State): Promise<void> {
     skills: {},
     memory_stores: {},
     environments: {},
+    vaults: {},
   };
   for (const key of Object.keys(state.agents).sort()) {
     sorted.agents[key] = state.agents[key];
@@ -44,6 +47,14 @@ export async function saveState(state: State): Promise<void> {
   }
   for (const key of Object.keys(state.environments).sort()) {
     sorted.environments[key] = state.environments[key];
+  }
+  for (const key of Object.keys(state.vaults).sort()) {
+    const v = state.vaults[key];
+    const sortedCreds: Record<string, { id: string; mcp_server_url: string }> = {};
+    for (const ck of Object.keys(v.credentials).sort()) {
+      sortedCreds[ck] = v.credentials[ck];
+    }
+    sorted.vaults[key] = { ...v, credentials: sortedCreds };
   }
   await fs.writeFile(
     STATE_PATH,

@@ -10,7 +10,7 @@
   <a href="./README.md">English</a> | 日本語
 </p>
 
-**cmaform** は **Anthropic Managed Agents / Skills / Memory Stores / Environments** を Terraform 風のワークフローで declarative に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
+**cmaform** は **Anthropic Managed Agents / Skills / Memory Stores / Environments / Vaults** を Terraform 風のワークフローで declarative に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
 
 ```text
   [~] update agent  "release-prep" (id=agent_01Qx..., version=6)
@@ -54,7 +54,7 @@ cmaform plan                                  # 差分確認
 cmaform apply                                 # 確認 → Anthropic に反映
 ```
 
-> Anthropic の Managed Agent / Skills / Memory Stores / Environments API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` を直接呼びます。
+> Anthropic の Managed Agent / Skills / Memory Stores / Environments / Vaults API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` を直接呼びます。
 
 ## 🚀 使い方
 
@@ -62,7 +62,7 @@ cmaform apply                                 # 確認 → Anthropic に反映
 
 | コマンド | 説明 |
 | --- | --- |
-| `cmaform pull <id>` | `agent_*` / `skill_*` / `memstore_*` / `env_*` ID から remote → local / state に取り込む |
+| `cmaform pull <id>` | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む |
 | `cmaform plan [--verbose\|-v] [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
 | `cmaform sync` | state にある全 entry を remote から取り直し YAML を再生成 |
@@ -81,7 +81,7 @@ cmaform apply release-prep --yes         # agent 1 件だけ (確認スキップ
 cmaform apply skills release-prep        # 全 skill + release-prep agent
 ```
 
-種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs`。
+種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults` / `credential` / `credentials`。
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
@@ -94,6 +94,7 @@ cmaform pull agent_011CaSWcCrMdQdp4SA6TVdH6   # agents/<name>.yaml を生成
 cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state のみ更新 (SKILL.md は再生成しない)
 cmaform pull memstore_01ABC...                # memory_stores/<name>/manifest.yaml を生成
 cmaform pull env_015G...                      # environments/<name>/manifest.yaml を生成
+cmaform pull vlt_011CaQ...                    # vaults/<name>/manifest.yaml を生成 (credentials/* は再生成しない)
 ```
 
 Skill 本体ファイル (`SKILL.md` 等) は **API が content を返さない**ため、`pull` でも復元できません。state には ID / version / display_title だけが記録され、ローカルファイルは自分で書く必要があります。
@@ -259,6 +260,73 @@ metadata: {}
 - 空配列の packages / limited networking の false デフォルト / サーバ側の `type: 'packages'` マーカは normalize で吸収されるため plan は idempotent
 - 削除は `archive`。既存セッションは継続使用できるが、新規セッション作成はできなくなる
 
+### Vault (`vaults/<localName>/`)
+
+vault は MCP server 用 credential を保持する入れ物。credentials は各 vault のサブディレクトリに配置します。
+
+```
+vaults/
+└── my-bot/
+    ├── manifest.yaml
+    └── credentials/
+        ├── slack.yaml
+        └── linear.yaml
+```
+
+**`manifest.yaml`** — vault 本体:
+
+```yaml
+display_name: my-bot
+metadata:
+  external_user_id: bot
+```
+
+**`credentials/<credLocalName>.yaml`** — 1 credential = 1 ファイル。`auth.type` は 2 種類サポート:
+
+```yaml
+# static_bearer の例
+display_name: my-bot-linear
+auth:
+  type: static_bearer
+  mcp_server_url: https://mcp.linear.app/mcp
+  token: ${env:LINEAR_TOKEN}
+```
+
+```yaml
+# mcp_oauth の例
+display_name: my-bot-slack
+auth:
+  type: mcp_oauth
+  mcp_server_url: https://mcp.slack.com/mcp
+  access_token: ${env:SLACK_ACCESS_TOKEN}
+  expires_at: '2099-12-31T23:59:59Z'
+  refresh:
+    token_endpoint: https://slack.com/api/oauth.v2.access
+    client_id: '1234567890.0987654321'
+    scope: channels:read chat:write
+    refresh_token: ${env:SLACK_REFRESH_TOKEN}
+    token_endpoint_auth:
+      type: client_secret_post
+      client_secret: ${env:SLACK_CLIENT_SECRET}
+```
+
+#### secret 値の指定方法
+
+credential の secret 系フィールド (`token` / `access_token` / `refresh_token` / `client_secret`) は Anthropic API 側で write-only です。以下 2 形式を受け付けます:
+
+- **リテラル**: `token: "actual-token-string"` (実 secret は commit しないこと)
+- **env 参照**: `token: ${env:VAR_NAME}` (apply 実行時に `process.env` から解決)
+
+`plan` 出力では secret 値は常に `<secret>` または `<secret: ${env:VAR_NAME}>` にマスクされ、実値が画面に出ることはありません。
+
+#### スコープ: credential は create + archive のみ
+
+本リリースでは **credential の create + archive のみ**対応。既存 credential の rotate / 変更は plan で検出しません。変更が必要なら YAML を削除して apply (archive)、新しい YAML を追加して再 apply (create) の運用です。
+
+- 差分対象 (vault 本体): `display_name` / `metadata`。通常の diff + update
+- credential の identity: ローカル YAML のファイル名と immutable な `auth.mcp_server_url`。state には `credentials[localName] = { id, mcp_server_url }` を記録
+- vault archive は API 側で credential を cascade archive。`plan` の WARN 部分に cascade される credential 一覧を表示
+
 ## 🗂️ ディレクトリ構成
 
 cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定したパス) を構成ルートとして読み書きします:
@@ -273,6 +341,10 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 │   └── <localName>/manifest.yaml
 ├── environments/
 │   └── <localName>/manifest.yaml
+├── vaults/
+│   └── <localName>/
+│       ├── manifest.yaml
+│       └── credentials/*.yaml
 └── cmaform.state.json
 ```
 
@@ -296,6 +368,15 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
   },
   "environments": {
     "python-dev": { "id": "env_01...", "name": "python-dev" }
+  },
+  "vaults": {
+    "my-bot": {
+      "id": "vlt_01...",
+      "display_name": "my-bot",
+      "credentials": {
+        "slack": { "id": "vcrd_01...", "mcp_server_url": "https://mcp.slack.com/mcp" }
+      }
+    }
   }
 }
 ```
@@ -338,7 +419,7 @@ node dist/cli.js --help
 ## 📋 要件
 
 - Node.js ≥ 22
-- Managed Agent / Skills / Memory Stores / Environments の beta API にアクセスできる Anthropic API key
+- Managed Agent / Skills / Memory Stores / Environments / Vaults の beta API にアクセスできる Anthropic API key
 
 ## 📄 ライセンス
 

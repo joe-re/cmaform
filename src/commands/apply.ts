@@ -28,6 +28,7 @@ import {
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
+import { loadAllVaultConfigs } from '../lib/vaults.js';
 
 export async function cmdApply(
   autoApprove: boolean,
@@ -39,6 +40,7 @@ export async function cmdApply(
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
+  const vaults = await loadAllVaultConfigs();
 
   const ctx = buildResolutionContext(state, configs, skills);
   const resolutions = new Map<string, ResolvedConfig>();
@@ -69,6 +71,7 @@ export async function cmdApply(
     skills,
     memoryStores,
     environments,
+    vaults,
     resolutions
   );
 
@@ -104,6 +107,11 @@ export async function cmdApply(
         inTarget.add(`skill:${(a as { localName: string }).localName}`);
       } else if (a.type.startsWith('env_')) {
         inTarget.add(`environment:${(a as { localName: string }).localName}`);
+      } else if (a.type.startsWith('vault_')) {
+        inTarget.add(`vault:${(a as { localName: string }).localName}`);
+      } else if (a.type.startsWith('cred_')) {
+        const c = a as { vaultLocalName: string; credLocalName: string };
+        inTarget.add(`credential:${c.vaultLocalName}/${c.credLocalName}`);
       }
     }
     const droppedDeps: string[] = [];
@@ -183,6 +191,20 @@ export async function cmdApply(
         const existing = state.environments[a.localName];
         if (!existing || existing.id !== a.id || existing.name !== a.name) {
           state.environments[a.localName] = { id: a.id, name: a.name };
+          stateChanged = true;
+        }
+      } else if (a.type === 'vault_noop') {
+        const existing = state.vaults[a.localName];
+        if (
+          !existing ||
+          existing.id !== a.id ||
+          existing.display_name !== a.display_name
+        ) {
+          state.vaults[a.localName] = {
+            id: a.id,
+            display_name: a.display_name,
+            credentials: existing?.credentials ?? {},
+          };
           stateChanged = true;
         }
       }

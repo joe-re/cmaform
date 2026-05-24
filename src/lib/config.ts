@@ -17,7 +17,10 @@ export const AGENTS_DIR = path.join(CMAFORM_DIR, 'agents');
 export const SKILLS_DIR = path.join(CMAFORM_DIR, 'skills');
 export const MEMORY_STORES_DIR = path.join(CMAFORM_DIR, 'memory_stores');
 export const ENVIRONMENTS_DIR = path.join(CMAFORM_DIR, 'environments');
+export const VAULTS_DIR = path.join(CMAFORM_DIR, 'vaults');
 export const STATE_PATH = path.join(CMAFORM_DIR, 'cmaform.state.json');
 
 export const MEMORY_STORE_MANIFEST_FILENAME = 'manifest.yaml';
 export const ENVIRONMENT_MANIFEST_FILENAME = 'manifest.yaml';
+export const VAULT_MANIFEST_FILENAME = 'manifest.yaml';
+export const VAULT_CREDENTIALS_DIRNAME = 'credentials';

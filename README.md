@@ -10,7 +10,7 @@
   English | <a href="./README.ja.md">日本語</a>
 </p>
 
-**cmaform** is a Terraform-style CLI for managing **Anthropic Managed Agents, Skills, Memory Stores, and Environments** as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
+**cmaform** is a Terraform-style CLI for managing **Anthropic Managed Agents, Skills, Memory Stores, Environments, and Vaults** as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
 
 ```text
   [~] update agent  "release-prep" (id=agent_01Qx..., version=6)
@@ -54,7 +54,7 @@ cmaform plan                                  # show the diff
 cmaform apply                                 # confirm → push to Anthropic
 ```
 
-> Anthropic's Managed Agent / Skills / Memory Stores / Environments APIs are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` endpoints directly.
+> Anthropic's Managed Agent / Skills / Memory Stores / Environments / Vaults APIs are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` endpoints directly.
 
 ## 🚀 Usage
 
@@ -62,7 +62,7 @@ cmaform apply                                 # confirm → push to Anthropic
 
 | Command | What it does |
 | --- | --- |
-| `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*`) into local files + state |
+| `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state |
 | `cmaform plan [--verbose\|-v] [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state |
 | `cmaform sync` | Re-fetch every entry in state from remote and rewrite local YAML |
@@ -81,7 +81,7 @@ cmaform apply release-prep --yes         # a single agent, skip confirmation
 cmaform apply skills release-prep        # all skills + one agent
 ```
 
-Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs`.
+Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults` / `credential` / `credentials`.
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
@@ -94,6 +94,7 @@ cmaform pull agent_011CaSWcCrMdQdp4SA6TVdH6   # writes agents/<name>.yaml
 cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state only — SKILL.md is not regenerated
 cmaform pull memstore_01ABC...                # writes memory_stores/<name>/manifest.yaml
 cmaform pull env_015G...                      # writes environments/<name>/manifest.yaml
+cmaform pull vlt_011CaQ...                    # writes vaults/<name>/manifest.yaml (credentials/* NOT regenerated)
 ```
 
 Skill content is **not** returned by the Anthropic API once uploaded, so `pull` for skills only records the ID + version + display title into state. The local `SKILL.md` must be authored by you.
@@ -261,6 +262,73 @@ metadata: {}
 - Empty package lists, `false` defaults in limited networking, and the server-side `type: 'packages'` marker are normalized away so the plan is idempotent.
 - Delete = `archive`. Archived environments stop accepting new sessions but existing sessions keep working.
 
+### Vault (`vaults/<localName>/`)
+
+A vault is a container that holds credentials for MCP servers. Credentials are nested under each vault directory.
+
+```
+vaults/
+└── my-bot/
+    ├── manifest.yaml
+    └── credentials/
+        ├── slack.yaml
+        └── linear.yaml
+```
+
+**`manifest.yaml`** — the vault itself:
+
+```yaml
+display_name: my-bot
+metadata:
+  external_user_id: bot
+```
+
+**`credentials/<credLocalName>.yaml`** — one credential per file. Two `auth.type` values are supported:
+
+```yaml
+# static_bearer example
+display_name: my-bot-linear
+auth:
+  type: static_bearer
+  mcp_server_url: https://mcp.linear.app/mcp
+  token: ${env:LINEAR_TOKEN}
+```
+
+```yaml
+# mcp_oauth example
+display_name: my-bot-slack
+auth:
+  type: mcp_oauth
+  mcp_server_url: https://mcp.slack.com/mcp
+  access_token: ${env:SLACK_ACCESS_TOKEN}
+  expires_at: '2099-12-31T23:59:59Z'
+  refresh:
+    token_endpoint: https://slack.com/api/oauth.v2.access
+    client_id: '1234567890.0987654321'
+    scope: channels:read chat:write
+    refresh_token: ${env:SLACK_REFRESH_TOKEN}
+    token_endpoint_auth:
+      type: client_secret_post
+      client_secret: ${env:SLACK_CLIENT_SECRET}
+```
+
+#### Secret values
+
+Credential secret fields (`token` / `access_token` / `refresh_token` / `client_secret`) are write-only on the Anthropic API. They accept two forms:
+
+- **Literal**: `token: "actual-token-string"` (do not commit real secrets)
+- **Env reference**: `token: ${env:VAR_NAME}` (resolved at `apply` time from `process.env`)
+
+In `plan` output, secret values are always masked as `<secret>` or `<secret: ${env:VAR_NAME}>` — actual values never reach the terminal.
+
+#### Scope: credential operations
+
+This release supports **credential create + archive only**. Updating an existing credential (rotation, scope change, etc.) is not detected by `plan`. If you need to change a credential, delete the YAML, run `apply` (archive), then add a new YAML and run `apply` again (create).
+
+- Diff fields (vault body): `display_name` / `metadata`. Standard diff & update.
+- Identity (credential): the local YAML filename plus the immutable `auth.mcp_server_url`. The state tracks `credentials[localName] = { id, mcp_server_url }`.
+- Vault archive cascades to its credentials on the server side; `plan` lists the cascaded credentials as part of the WARN block.
+
 ## 🗂️ Directory Layout
 
 cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
@@ -275,6 +343,10 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 │   └── <localName>/manifest.yaml
 ├── environments/
 │   └── <localName>/manifest.yaml
+├── vaults/
+│   └── <localName>/
+│       ├── manifest.yaml
+│       └── credentials/*.yaml
 └── cmaform.state.json
 ```
 
@@ -298,6 +370,15 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
   },
   "environments": {
     "python-dev": { "id": "env_01...", "name": "python-dev" }
+  },
+  "vaults": {
+    "my-bot": {
+      "id": "vlt_01...",
+      "display_name": "my-bot",
+      "credentials": {
+        "slack": { "id": "vcrd_01...", "mcp_server_url": "https://mcp.slack.com/mcp" }
+      }
+    }
   }
 }
 ```
@@ -340,7 +421,7 @@ node dist/cli.js --help
 ## 📋 Requirements
 
 - Node.js ≥ 22
-- An Anthropic API key with access to the Managed Agent / Skills / Memory Stores / Environments beta
+- An Anthropic API key with access to the Managed Agent / Skills / Memory Stores / Environments / Vaults beta
 
 ## 📄 License
 

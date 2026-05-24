@@ -18,6 +18,12 @@ import {
   writeMemoryStoreManifestFromRemote,
 } from '../lib/memory-stores.js';
 import {
+  listVaults,
+  loadAllVaultConfigs,
+  retrieveVault,
+  writeVaultManifestFromRemote,
+} from '../lib/vaults.js';
+import {
   findSkillByDisplayTitle,
   loadAllSkillConfigs,
   retrieveSkill,
@@ -39,19 +45,22 @@ export async function cmdSync(): Promise<number> {
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
+  const vaults = await loadAllVaultConfigs();
 
   const hasAnything =
     Object.keys(state.agents).length > 0 ||
     Object.keys(state.skills).length > 0 ||
     Object.keys(state.memory_stores).length > 0 ||
     Object.keys(state.environments).length > 0 ||
+    Object.keys(state.vaults).length > 0 ||
     skills.size > 0 ||
     memoryStores.size > 0 ||
-    environments.size > 0;
+    environments.size > 0 ||
+    vaults.size > 0;
 
   if (!hasAnything) {
     process.stdout.write(
-      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id|env_id>` to import.\n'
+      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id|env_id|vlt_id>` to import.\n'
     );
     return 0;
   }
@@ -67,6 +76,9 @@ export async function cmdSync(): Promise<number> {
   let envWritten = 0;
   let envSkipped = 0;
   let envDiscovered = 0;
+  let vaultWritten = 0;
+  let vaultSkipped = 0;
+  let vaultDiscovered = 0;
   let stateChanged = false;
 
   // ----- agents -----
@@ -246,6 +258,54 @@ export async function cmdSync(): Promise<number> {
     }
   }
 
+  // ----- vaults (manifest only — credentials/*.yaml is not regenerated) -----
+  for (const localName of Object.keys(state.vaults)) {
+    const entry = state.vaults[localName];
+    const remote = await retrieveVault(entry.id);
+    if (!remote || remote.archived_at) {
+      process.stdout.write(
+        `  [!] skip vault ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+      );
+      vaultSkipped++;
+      continue;
+    }
+    const manifestPath = await writeVaultManifestFromRemote(remote, localName);
+    process.stdout.write(
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+    );
+    vaultWritten++;
+    if (entry.display_name !== remote.display_name) {
+      state.vaults[localName] = {
+        ...entry,
+        display_name: remote.display_name,
+      };
+      stateChanged = true;
+    }
+  }
+  for (const [localName, vault] of vaults) {
+    if (state.vaults[localName]) continue;
+    const remotes = await listVaults();
+    const remote = remotes.find(
+      r => r.display_name === vault.config.display_name && !r.archived_at
+    );
+    if (remote) {
+      state.vaults[localName] = {
+        id: remote.id,
+        display_name: remote.display_name,
+        credentials: {},
+      };
+      process.stdout.write(
+        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`
+      );
+      vaultDiscovered++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [?] not found on remote: vault ${JSON.stringify(localName)} (display_name=${JSON.stringify(vault.config.display_name)})\n`
+      );
+    }
+  }
+
   if (stateChanged) {
     await saveState(state);
     process.stdout.write(
@@ -258,7 +318,8 @@ export async function cmdSync(): Promise<number> {
       `  skills:        ${skillUpdated} updated, ${skillDiscovered} discovered, ${skillSkipped} skipped\n` +
       `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
       `  environments:  ${envWritten} written, ${envDiscovered} discovered, ${envSkipped} skipped\n` +
-      `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`
+      `  vaults:        ${vaultWritten} written, ${vaultDiscovered} discovered, ${vaultSkipped} skipped\n` +
+      `  (skill content files such as SKILL.md, and credential secrets, cannot be fetched from the API and are not regenerated)\n`
   );
   return 0;
 }

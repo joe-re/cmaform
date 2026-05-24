@@ -7,6 +7,7 @@ import { CMAFORM_DIR } from './config.js';
 import type { Action, PlanWarning } from './plan.js';
 import { prettifySentinelsForDisplay } from './resolve.js';
 import type { FieldDiff } from './types.js';
+import { maskCredentialSecrets } from './vaults.js';
 
 function formatWarningLines(
   warnings: PlanWarning[] | undefined,
@@ -268,6 +269,13 @@ export function printPlan(
   let envUpdates = 0;
   let envArchives = 0;
   let envNoops = 0;
+  let vaultCreates = 0;
+  let vaultUpdates = 0;
+  let vaultArchives = 0;
+  let vaultNoops = 0;
+  let credCreates = 0;
+  let credArchives = 0;
+  let credNoops = 0;
 
   for (const a of actions) {
     switch (a.type) {
@@ -489,6 +497,112 @@ export function printPlan(
       case 'env_noop':
         envNoops++;
         break;
+      case 'vault_create': {
+        process.stdout.write(
+          colorize(
+            'green',
+            `  [+] create vault       ${JSON.stringify(a.localName)}`
+          ) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+        );
+        const vcfg = a.config as unknown as Record<string, unknown>;
+        for (const field of ['display_name', 'metadata']) {
+          const value = vcfg[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
+        vaultCreates++;
+        break;
+      }
+      case 'vault_update':
+        process.stdout.write(
+          colorize(
+            'yellow',
+            `  [~] update vault       ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+        );
+        for (const d of a.diffs) {
+          process.stdout.write(formatFieldDiff(d, '       '));
+        }
+        vaultUpdates++;
+        break;
+      case 'vault_archive': {
+        process.stdout.write(
+          colorize(
+            'red',
+            `  [-] archive vault      ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              `archive cascades to ${a.cascadedCredentials.length} credential(s). New sessions cannot attach this vault.`
+            ) +
+            '\n'
+        );
+        for (const credName of a.cascadedCredentials) {
+          process.stdout.write(
+            '       ' +
+              colorize('yellow', `→ credential ${JSON.stringify(credName)} will also be archived`) +
+              '\n'
+          );
+        }
+        vaultArchives++;
+        break;
+      }
+      case 'vault_noop':
+        vaultNoops++;
+        break;
+      case 'cred_create': {
+        process.stdout.write(
+          colorize(
+            'green',
+            `  [+] create credential  ${JSON.stringify(a.vaultLocalName + '/' + a.credLocalName)}`
+          ) +
+            '\n' +
+            `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
+        );
+        // Mask secret values before serializing so they never end up on screen.
+        const masked = maskCredentialSecrets(a.config) as unknown as Record<
+          string,
+          unknown
+        >;
+        for (const field of ['display_name', 'auth']) {
+          const value = masked[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
+        credCreates++;
+        break;
+      }
+      case 'cred_archive':
+        process.stdout.write(
+          colorize(
+            'red',
+            `  [-] archive credential ${JSON.stringify(a.vaultLocalName + '/' + a.credLocalName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', `mcp_server_url: ${a.mcp_server_url}`)}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              'secret values are purged; the credential record stays in the audit log'
+            ) +
+            '\n'
+        );
+        credArchives++;
+        break;
+      case 'cred_noop':
+        credNoops++;
+        break;
     }
   }
 
@@ -496,6 +610,8 @@ export function printPlan(
     `\nPlan (agents):         ${creates} to add, ${updates} to change, ${deletes} to archive, ${noops} unchanged.\n` +
       `Plan (skills):         ${skillCreates} to add, ${skillUpdates} to change, ${skillDeletes} to delete, ${skillNoops} unchanged.\n` +
       `Plan (memory_stores):  ${memCreates} to add, ${memUpdates} to change, ${memArchives} to archive, ${memNoops} unchanged.\n` +
-      `Plan (environments):   ${envCreates} to add, ${envUpdates} to change, ${envArchives} to archive, ${envNoops} unchanged.\n`
+      `Plan (environments):   ${envCreates} to add, ${envUpdates} to change, ${envArchives} to archive, ${envNoops} unchanged.\n` +
+      `Plan (vaults):         ${vaultCreates} to add, ${vaultUpdates} to change, ${vaultArchives} to archive, ${vaultNoops} unchanged.\n` +
+      `Plan (credentials):    ${credCreates} to add, ${credArchives} to archive, ${credNoops} unchanged.\n`
   );
 }

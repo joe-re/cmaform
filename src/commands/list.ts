@@ -14,6 +14,10 @@ import {
   loadAllMemoryStoreConfigs,
 } from '../lib/memory-stores.js';
 import {
+  listVaults,
+  loadAllVaultConfigs,
+} from '../lib/vaults.js';
+import {
   listSkills,
   loadAllSkillConfigs,
 } from '../lib/skills.js';
@@ -25,6 +29,7 @@ export async function cmdList(): Promise<number> {
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
+  const vaults = await loadAllVaultConfigs();
 
   console.log('=== local agents ===');
   if (configs.size === 0) console.log('  (none)');
@@ -138,6 +143,40 @@ export async function cmdList(): Promise<number> {
     console.log(`  (fetch failed: ${(err as Error).message})`);
   }
   if (remoteEnvCount === 0) console.log('  (none)');
+
+  console.log('\n=== local vaults ===');
+  if (vaults.size === 0) console.log('  (none)');
+  for (const [localName, vault] of vaults) {
+    const tracked = state.vaults[localName];
+    const idStr = tracked ? `id=${tracked.id}` : 'untracked';
+    console.log(
+      `  ${path.relative(CMAFORM_DIR, vault.dirPath)}  display_name=${JSON.stringify(vault.config.display_name)}  ${idStr}`
+    );
+    for (const [credName, cred] of vault.credentials) {
+      const trackedCred = tracked?.credentials[credName];
+      const credId = trackedCred ? `id=${trackedCred.id}` : 'untracked';
+      console.log(
+        `      credentials/${credName}.yaml  auth=${cred.config.auth.type}  ${credId}`
+      );
+    }
+  }
+
+  console.log('\n=== remote vaults ===');
+  let remoteVaultCount = 0;
+  try {
+    const remoteVaults = await listVaults();
+    for (const v of remoteVaults) {
+      if (v.archived_at) continue;
+      const tracked = Object.values(state.vaults).some(s => s.id === v.id);
+      console.log(
+        `  ${JSON.stringify(v.display_name)}  id=${v.id}${tracked ? '' : '  (untracked)'}`
+      );
+      remoteVaultCount++;
+    }
+  } catch (err) {
+    console.log(`  (fetch failed: ${(err as Error).message})`);
+  }
+  if (remoteVaultCount === 0) console.log('  (none)');
 
   return 0;
 }
