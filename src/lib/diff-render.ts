@@ -19,15 +19,35 @@ function colorize(code: keyof typeof ANSI, text: string): string {
   return ANSI[code] + text + ANSI.reset;
 }
 
+/**
+ * Recursively sort object keys so YAML serialization is deterministic. Array
+ * order is preserved (it is semantically meaningful for tools / agents / etc).
+ * Used purely for display — diff detection runs on the original objects via
+ * deep-equal which is already insensitive to key order.
+ */
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize);
+  if (v && typeof v === 'object') {
+    const sorted: Record<string, unknown> = {};
+    for (const k of Object.keys(v as Record<string, unknown>).sort()) {
+      sorted[k] = canonicalize((v as Record<string, unknown>)[k]);
+    }
+    return sorted;
+  }
+  return v;
+}
+
 function serializeForDiff(v: unknown): string[] {
   if (v === undefined || v === null) return ['(unset)'];
   if (typeof v === 'string')
     return v.length === 0 ? ['(empty)'] : v.split('\n');
   if (typeof v !== 'object') return [String(v)];
   try {
-    return stringifyYaml(v, { lineWidth: 0 }).trimEnd().split('\n');
+    return stringifyYaml(canonicalize(v), { lineWidth: 0 })
+      .trimEnd()
+      .split('\n');
   } catch {
-    return JSON.stringify(v, null, 2).split('\n');
+    return JSON.stringify(canonicalize(v), null, 2).split('\n');
   }
 }
 

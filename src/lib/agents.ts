@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { AGENTS_DIR } from './config.js';
+import { normalizeFieldPair } from './normalize.js';
 import {
   rewriteAgentRefsToNameForm,
   rewriteSkillRefsToNameForm,
@@ -200,8 +201,12 @@ export function fieldDiffs(
 ): FieldDiff[] {
   const diffs: FieldDiff[] = [];
   for (const field of COMPARE_FIELDS) {
-    const lv = nullToUndefined(local[field] as unknown);
-    const rv = nullToUndefined(remote[field] as unknown);
+    const lvRaw = nullToUndefined(local[field] as unknown);
+    const rvRaw = nullToUndefined(remote[field] as unknown);
+    // Normalize before comparison so that server-side default filling,
+    // omitted-vs-empty-array, and "latest" version resolution don't show
+    // up as permanent diffs. See lib/normalize.ts for the rule set.
+    const [lv, rv] = normalizeFieldPair(field, lvRaw, rvRaw);
     if (!isDeepStrictEqual(lv, rv)) {
       diffs.push({ field, oldValue: rv, newValue: lv });
     }
