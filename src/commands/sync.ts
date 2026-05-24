@@ -6,6 +6,12 @@ import {
 } from '../lib/agents.js';
 import { CMAFORM_DIR, STATE_PATH } from '../lib/config.js';
 import {
+  listEnvironments,
+  loadAllEnvironmentConfigs,
+  retrieveEnvironment,
+  writeEnvironmentManifestFromRemote,
+} from '../lib/environments.js';
+import {
   listMemoryStores,
   loadAllMemoryStoreConfigs,
   retrieveMemoryStore,
@@ -32,17 +38,20 @@ export async function cmdSync(): Promise<number> {
   const state = await loadState();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
+  const environments = await loadAllEnvironmentConfigs();
 
   const hasAnything =
     Object.keys(state.agents).length > 0 ||
     Object.keys(state.skills).length > 0 ||
     Object.keys(state.memory_stores).length > 0 ||
+    Object.keys(state.environments).length > 0 ||
     skills.size > 0 ||
-    memoryStores.size > 0;
+    memoryStores.size > 0 ||
+    environments.size > 0;
 
   if (!hasAnything) {
     process.stdout.write(
-      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id>` to import.\n'
+      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id|env_id>` to import.\n'
     );
     return 0;
   }
@@ -55,6 +64,9 @@ export async function cmdSync(): Promise<number> {
   let memWritten = 0;
   let memSkipped = 0;
   let memDiscovered = 0;
+  let envWritten = 0;
+  let envSkipped = 0;
+  let envDiscovered = 0;
   let stateChanged = false;
 
   // ----- agents -----
@@ -192,6 +204,48 @@ export async function cmdSync(): Promise<number> {
     }
   }
 
+  // ----- environments -----
+  for (const localName of Object.keys(state.environments)) {
+    const entry = state.environments[localName];
+    const remote = await retrieveEnvironment(entry.id);
+    if (!remote || remote.archived_at) {
+      process.stdout.write(
+        `  [!] skip environment ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+      );
+      envSkipped++;
+      continue;
+    }
+    const manifestPath = await writeEnvironmentManifestFromRemote(
+      remote,
+      localName
+    );
+    process.stdout.write(
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+    );
+    envWritten++;
+    if (entry.name !== remote.name) {
+      state.environments[localName] = { id: entry.id, name: remote.name };
+      stateChanged = true;
+    }
+  }
+  for (const [localName, { config }] of environments) {
+    if (state.environments[localName]) continue;
+    const remotes = await listEnvironments();
+    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    if (remote) {
+      state.environments[localName] = { id: remote.id, name: remote.name };
+      process.stdout.write(
+        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`
+      );
+      envDiscovered++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [?] not found on remote: environment ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`
+      );
+    }
+  }
+
   if (stateChanged) {
     await saveState(state);
     process.stdout.write(
@@ -203,6 +257,7 @@ export async function cmdSync(): Promise<number> {
       `  agents:        ${agentWritten} written, ${agentSkipped} skipped\n` +
       `  skills:        ${skillUpdated} updated, ${skillDiscovered} discovered, ${skillSkipped} skipped\n` +
       `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
+      `  environments:  ${envWritten} written, ${envDiscovered} discovered, ${envSkipped} skipped\n` +
       `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`
   );
   return 0;

@@ -3,6 +3,10 @@ import {
   resolveRemote,
 } from './agents.js';
 import {
+  environmentFieldDiffs,
+  retrieveEnvironment,
+} from './environments.js';
+import {
   memoryStoreFieldDiffs,
   retrieveMemoryStore,
 } from './memory-stores.js';
@@ -10,9 +14,11 @@ import type { ResolvedConfig } from './resolve.js';
 import { findSkillByDisplayTitle } from './skills.js';
 import type {
   AgentConfig,
+  EnvironmentConfig,
   FieldDiff,
   LocalSkill,
   MemoryStoreConfig,
+  RemoteEnvironment,
   RemoteMemoryStore,
   State,
 } from './types.js';
@@ -106,6 +112,33 @@ export type Action =
       type: 'memstore_archive';
       localName: string;
       id: string;
+    }
+  // environments
+  | {
+      type: 'env_create';
+      localName: string;
+      config: EnvironmentConfig;
+      dirPath: string;
+    }
+  | {
+      type: 'env_update';
+      localName: string;
+      id: string;
+      config: EnvironmentConfig;
+      remote: RemoteEnvironment;
+      dirPath: string;
+      diffs: FieldDiff[];
+    }
+  | {
+      type: 'env_noop';
+      localName: string;
+      id: string;
+      name: string;
+    }
+  | {
+      type: 'env_archive';
+      localName: string;
+      id: string;
     };
 
 export async function computePlan(
@@ -113,6 +146,7 @@ export async function computePlan(
   configs: Map<string, { config: AgentConfig; filePath: string }>,
   skills: Map<string, LocalSkill>,
   memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>,
+  environments: Map<string, { config: EnvironmentConfig; dirPath: string }>,
   resolutions: Map<string, ResolvedConfig>
 ): Promise<Action[]> {
   const actions: Action[] = [];
@@ -247,12 +281,46 @@ export async function computePlan(
     }
   }
 
+  // ----- environments -----
+  for (const [localName, { config, dirPath }] of environments) {
+    const tracked = state.environments[localName];
+    const remote = tracked ? await retrieveEnvironment(tracked.id) : null;
+    if (!remote || remote.archived_at) {
+      actions.push({ type: 'env_create', localName, config, dirPath });
+      continue;
+    }
+    const diffs = environmentFieldDiffs(config, remote);
+    if (diffs.length === 0) {
+      actions.push({
+        type: 'env_noop',
+        localName,
+        id: remote.id,
+        name: remote.name,
+      });
+    } else {
+      actions.push({
+        type: 'env_update',
+        localName,
+        id: remote.id,
+        config,
+        remote,
+        dirPath,
+        diffs,
+      });
+    }
+  }
+  for (const [localName, entry] of Object.entries(state.environments)) {
+    if (!environments.has(localName)) {
+      actions.push({ type: 'env_archive', localName, id: entry.id });
+    }
+  }
+
   return actions;
 }
 
 // ---------------- target filtering ----------------
 
-type ResourceKind = 'agent' | 'skill' | 'memory_store';
+type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment';
 
 function actionResourceName(a: Action): string {
   if (
@@ -269,6 +337,7 @@ function actionResourceName(a: Action): string {
 function actionResourceKind(a: Action): ResourceKind {
   if (a.type.startsWith('skill_')) return 'skill';
   if (a.type.startsWith('memstore_')) return 'memory_store';
+  if (a.type.startsWith('env_')) return 'environment';
   return 'agent';
 }
 
@@ -281,6 +350,10 @@ const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
   memory_stores: 'memory_store',
   memstore: 'memory_store',
   memstores: 'memory_store',
+  environment: 'environment',
+  environments: 'environment',
+  env: 'environment',
+  envs: 'environment',
 };
 
 export function filterActionsByTargets(
@@ -316,6 +389,9 @@ export function filterActionsByTargets(
 export function hasChanges(actions: Action[]): boolean {
   return actions.some(
     a =>
-      a.type !== 'noop' && a.type !== 'skill_noop' && a.type !== 'memstore_noop'
+      a.type !== 'noop' &&
+      a.type !== 'skill_noop' &&
+      a.type !== 'memstore_noop' &&
+      a.type !== 'env_noop'
   );
 }

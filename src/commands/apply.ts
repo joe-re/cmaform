@@ -9,6 +9,7 @@ import {
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
+import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import {
   computePlan,
@@ -37,6 +38,7 @@ export async function cmdApply(
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
+  const environments = await loadAllEnvironmentConfigs();
 
   const ctx = buildResolutionContext(state, configs, skills);
   const resolutions = new Map<string, ResolvedConfig>();
@@ -66,6 +68,7 @@ export async function cmdApply(
     configs,
     skills,
     memoryStores,
+    environments,
     resolutions
   );
 
@@ -99,6 +102,8 @@ export async function cmdApply(
         inTarget.add(`agent:${a.name}`);
       } else if (a.type.startsWith('skill_')) {
         inTarget.add(`skill:${(a as { localName: string }).localName}`);
+      } else if (a.type.startsWith('env_')) {
+        inTarget.add(`environment:${(a as { localName: string }).localName}`);
       }
     }
     const droppedDeps: string[] = [];
@@ -172,6 +177,12 @@ export async function cmdApply(
         const existing = state.memory_stores[a.localName];
         if (!existing || existing.id !== a.id || existing.name !== a.name) {
           state.memory_stores[a.localName] = { id: a.id, name: a.name };
+          stateChanged = true;
+        }
+      } else if (a.type === 'env_noop') {
+        const existing = state.environments[a.localName];
+        if (!existing || existing.id !== a.id || existing.name !== a.name) {
+          state.environments[a.localName] = { id: a.id, name: a.name };
           stateChanged = true;
         }
       }

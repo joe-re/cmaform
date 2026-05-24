@@ -264,6 +264,10 @@ export function printPlan(
   let memUpdates = 0;
   let memArchives = 0;
   let memNoops = 0;
+  let envCreates = 0;
+  let envUpdates = 0;
+  let envArchives = 0;
+  let envNoops = 0;
 
   for (const a of actions) {
     switch (a.type) {
@@ -431,12 +435,67 @@ export function printPlan(
       case 'memstore_noop':
         memNoops++;
         break;
+      case 'env_create': {
+        process.stdout.write(
+          colorize(
+            'green',
+            `  [+] create environment ${JSON.stringify(a.localName)}`
+          ) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+        );
+        const ecfg = a.config as unknown as Record<string, unknown>;
+        for (const field of ['name', 'description', 'metadata', 'config']) {
+          const value = ecfg[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
+        envCreates++;
+        break;
+      }
+      case 'env_update':
+        process.stdout.write(
+          colorize(
+            'yellow',
+            `  [~] update environment ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+        );
+        for (const d of a.diffs) {
+          process.stdout.write(formatFieldDiff(d, '       '));
+        }
+        envUpdates++;
+        break;
+      case 'env_archive':
+        process.stdout.write(
+          colorize(
+            'red',
+            `  [-] archive environment ${JSON.stringify(a.localName)} (id=${a.id})`
+          ) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              'archive is one-way; existing sessions keep working but new sessions cannot use it'
+            ) +
+            '\n'
+        );
+        envArchives++;
+        break;
+      case 'env_noop':
+        envNoops++;
+        break;
     }
   }
 
   process.stdout.write(
     `\nPlan (agents):         ${creates} to add, ${updates} to change, ${deletes} to archive, ${noops} unchanged.\n` +
       `Plan (skills):         ${skillCreates} to add, ${skillUpdates} to change, ${skillDeletes} to delete, ${skillNoops} unchanged.\n` +
-      `Plan (memory_stores):  ${memCreates} to add, ${memUpdates} to change, ${memArchives} to archive, ${memNoops} unchanged.\n`
+      `Plan (memory_stores):  ${memCreates} to add, ${memUpdates} to change, ${memArchives} to archive, ${memNoops} unchanged.\n` +
+      `Plan (environments):   ${envCreates} to add, ${envUpdates} to change, ${envArchives} to archive, ${envNoops} unchanged.\n`
   );
 }

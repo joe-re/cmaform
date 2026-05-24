@@ -12,6 +12,10 @@ import {
   STATE_PATH,
 } from '../lib/config.js';
 import {
+  retrieveEnvironment,
+  writeEnvironmentManifestFromRemote,
+} from '../lib/environments.js';
+import {
   retrieveMemoryStore,
   writeMemoryStoreManifestFromRemote,
 } from '../lib/memory-stores.js';
@@ -25,10 +29,13 @@ export async function cmdPull(query: string): Promise<number> {
   if (query.startsWith('memstore_')) {
     return cmdPullMemoryStore(query);
   }
+  if (query.startsWith('env_')) {
+    return cmdPullEnvironment(query);
+  }
   if (!query.startsWith('agent_')) {
     process.stderr.write(
       formatErrorHeadline(
-        `pull expects an ID starting with 'agent_', 'skill_', or 'memstore_' (got: ${JSON.stringify(query)})`
+        `pull expects an ID starting with 'agent_', 'skill_', 'memstore_', or 'env_' (got: ${JSON.stringify(query)})`
       ) + '\n'
     );
     return 2;
@@ -117,6 +124,49 @@ async function cmdPullSkill(skillId: string): Promise<number> {
  * `localName` is derived by slugifying the store's name (spaces and slashes become hyphens).
  * If an existing directory already tracks this id, its localName is preserved.
  */
+/**
+ * Import a remote environment (by env_id), generating
+ * `environments/<localName>/manifest.yaml` and registering it in state.
+ * `localName` is derived by slugifying the environment's name; if the same
+ * id is already tracked locally, the existing localName is preserved.
+ */
+async function cmdPullEnvironment(envId: string): Promise<number> {
+  const remote = await retrieveEnvironment(envId);
+  if (!remote) {
+    process.stderr.write(
+      formatErrorHeadline(`environment not found: ${envId}`) + '\n'
+    );
+    return 1;
+  }
+
+  const state = await loadState();
+  let localName: string | null = null;
+  for (const [name, entry] of Object.entries(state.environments)) {
+    if (entry.id === remote.id) {
+      localName = name;
+      break;
+    }
+  }
+  if (!localName) {
+    localName = remote.name.replace(/[/\\\s]+/g, '-');
+  }
+
+  const manifestPath = await writeEnvironmentManifestFromRemote(
+    remote,
+    localName
+  );
+  process.stderr.write(
+    `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+  );
+
+  state.environments[localName] = { id: remote.id, name: remote.name };
+  await saveState(state);
+  process.stderr.write(
+    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
+  );
+  return 0;
+}
+
 async function cmdPullMemoryStore(memstoreId: string): Promise<number> {
   const remote = await retrieveMemoryStore(memstoreId);
   if (!remote) {

@@ -6,6 +6,10 @@ import {
 } from '../lib/agents.js';
 import { CMAFORM_DIR } from '../lib/config.js';
 import {
+  listEnvironments,
+  loadAllEnvironmentConfigs,
+} from '../lib/environments.js';
+import {
   listMemoryStores,
   loadAllMemoryStoreConfigs,
 } from '../lib/memory-stores.js';
@@ -20,6 +24,7 @@ export async function cmdList(): Promise<number> {
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
+  const environments = await loadAllEnvironmentConfigs();
 
   console.log('=== local agents ===');
   if (configs.size === 0) console.log('  (none)');
@@ -103,6 +108,36 @@ export async function cmdList(): Promise<number> {
     console.log(`  (fetch failed: ${(err as Error).message})`);
   }
   if (remoteMemCount === 0) console.log('  (none)');
+
+  console.log('\n=== local environments ===');
+  if (environments.size === 0) console.log('  (none)');
+  for (const [, { config, dirPath }] of environments) {
+    const localName = path.basename(dirPath);
+    const tracked = state.environments[localName];
+    const idStr = tracked ? `id=${tracked.id}` : 'untracked';
+    console.log(
+      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`
+    );
+  }
+
+  console.log('\n=== remote environments ===');
+  let remoteEnvCount = 0;
+  try {
+    const remoteEnvs = await listEnvironments();
+    for (const e of remoteEnvs) {
+      if (e.archived_at) continue;
+      const tracked = Object.values(state.environments).some(
+        s => s.id === e.id
+      );
+      console.log(
+        `  ${JSON.stringify(e.name)}  id=${e.id}${tracked ? '' : '  (untracked)'}`
+      );
+      remoteEnvCount++;
+    }
+  } catch (err) {
+    console.log(`  (fetch failed: ${(err as Error).message})`);
+  }
+  if (remoteEnvCount === 0) console.log('  (none)');
 
   return 0;
 }

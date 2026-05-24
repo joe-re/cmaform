@@ -6,6 +6,11 @@ import {
 } from '../lib/agents.js';
 import { STATE_PATH } from '../lib/config.js';
 import {
+  listEnvironments,
+  loadAllEnvironmentConfigs,
+  retrieveEnvironment,
+} from '../lib/environments.js';
+import {
   listMemoryStores,
   retrieveMemoryStore,
 } from '../lib/memory-stores.js';
@@ -35,6 +40,7 @@ export async function cmdInit(): Promise<number> {
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
+  const environments = await loadAllEnvironmentConfigs();
 
   let changed = 0;
 
@@ -150,6 +156,38 @@ export async function cmdInit(): Promise<number> {
       state.memory_stores[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
         `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`
+      );
+      changed++;
+    }
+  }
+
+  // ----- environments -----
+  for (const [localName, entry] of Object.entries(state.environments)) {
+    const remote = await retrieveEnvironment(entry.id);
+    if (!remote || remote.archived_at) {
+      delete state.environments[localName];
+      process.stdout.write(
+        `  [-] removed from state: environment ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`
+      );
+      changed++;
+      continue;
+    }
+    if (remote.name !== entry.name) {
+      state.environments[localName] = { id: entry.id, name: remote.name };
+      process.stdout.write(
+        `  [~] environment name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`
+      );
+      changed++;
+    }
+  }
+  for (const [localName, { config }] of environments) {
+    if (state.environments[localName]) continue;
+    const remotes = await listEnvironments();
+    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    if (remote) {
+      state.environments[localName] = { id: remote.id, name: remote.name };
+      process.stdout.write(
+        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`
       );
       changed++;
     }

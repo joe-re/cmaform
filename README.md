@@ -10,7 +10,7 @@
   English | <a href="./README.ja.md">日本語</a>
 </p>
 
-**cmaform** is a Terraform-style CLI for managing **Anthropic Managed Agents, Skills, and Memory Stores** as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
+**cmaform** is a Terraform-style CLI for managing **Anthropic Managed Agents, Skills, Memory Stores, and Environments** as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
 
 ```text
   [~] update agent  "release-prep" (id=agent_01Qx..., version=6)
@@ -54,7 +54,7 @@ cmaform plan                                  # show the diff
 cmaform apply                                 # confirm → push to Anthropic
 ```
 
-> Anthropic's Managed Agent / Skills / Memory Stores APIs are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` endpoints directly.
+> Anthropic's Managed Agent / Skills / Memory Stores / Environments APIs are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` endpoints directly.
 
 ## 🚀 Usage
 
@@ -62,7 +62,7 @@ cmaform apply                                 # confirm → push to Anthropic
 
 | Command | What it does |
 | --- | --- |
-| `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*`) into local files + state |
+| `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*`) into local files + state |
 | `cmaform plan [--verbose\|-v] [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state |
 | `cmaform sync` | Re-fetch every entry in state from remote and rewrite local YAML |
@@ -81,7 +81,7 @@ cmaform apply release-prep --yes         # a single agent, skip confirmation
 cmaform apply skills release-prep        # all skills + one agent
 ```
 
-Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores`.
+Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs`.
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
@@ -93,6 +93,7 @@ If you pass an individual name that doesn't exist anywhere (local YAML, state, o
 cmaform pull agent_011CaSWcCrMdQdp4SA6TVdH6   # writes agents/<name>.yaml
 cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state only — SKILL.md is not regenerated
 cmaform pull memstore_01ABC...                # writes memory_stores/<name>/manifest.yaml
+cmaform pull env_015G...                      # writes environments/<name>/manifest.yaml
 ```
 
 Skill content is **not** returned by the Anthropic API once uploaded, so `pull` for skills only records the ID + version + display title into state. The local `SKILL.md` must be authored by you.
@@ -233,6 +234,33 @@ metadata:
 - `metadata` is patched: keys missing locally are deleted, others are upserted.
 - Delete = `archive` (one-way; the store's memory data is preserved).
 
+### Environment (`environments/<localName>/manifest.yaml`)
+
+```yaml
+name: python-dev
+description: optional
+config:
+  type: cloud
+  packages:
+    pip:
+      - pandas
+      - numpy==2.2.0
+    npm:
+      - express
+  networking:
+    type: limited
+    allowed_hosts:
+      - https://api.example.com
+    allow_mcp_servers: true
+    allow_package_managers: true
+metadata: {}
+```
+
+- Diff fields: `name` / `description` / `metadata` / `config`.
+- Only `config.type: cloud` is currently supported (self-hosted environments are out of scope).
+- Empty package lists, `false` defaults in limited networking, and the server-side `type: 'packages'` marker are normalized away so the plan is idempotent.
+- Delete = `archive`. Archived environments stop accepting new sessions but existing sessions keep working.
+
 ## 🗂️ Directory Layout
 
 cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
@@ -244,6 +272,8 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 ├── skills/
 │   └── <localName>/SKILL.md
 ├── memory_stores/
+│   └── <localName>/manifest.yaml
+├── environments/
 │   └── <localName>/manifest.yaml
 └── cmaform.state.json
 ```
@@ -265,6 +295,9 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
   },
   "memory_stores": {
     "team-notes": { "id": "memstore_01...", "name": "team-notes" }
+  },
+  "environments": {
+    "python-dev": { "id": "env_01...", "name": "python-dev" }
   }
 }
 ```
@@ -307,7 +340,7 @@ node dist/cli.js --help
 ## 📋 Requirements
 
 - Node.js ≥ 22
-- An Anthropic API key with access to the Managed Agent / Skills / Memory Stores beta
+- An Anthropic API key with access to the Managed Agent / Skills / Memory Stores / Environments beta
 
 ## 📄 License
 

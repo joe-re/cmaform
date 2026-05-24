@@ -7,6 +7,11 @@ import {
   updateAgent,
 } from './agents.js';
 import {
+  archiveEnvironment,
+  createEnvironment,
+  updateEnvironment,
+} from './environments.js';
+import {
   archiveMemoryStore,
   createMemoryStore,
   updateMemoryStore,
@@ -58,6 +63,10 @@ export async function executeActions(
     }
     if (a.type === 'memstore_noop') {
       state.memory_stores[a.localName] = { id: a.id, name: a.name };
+      continue;
+    }
+    if (a.type === 'env_noop') {
+      state.environments[a.localName] = { id: a.id, name: a.name };
       continue;
     }
 
@@ -165,6 +174,27 @@ export async function executeActions(
         );
         await archiveMemoryStore(a.id);
         delete state.memory_stores[a.localName];
+        process.stdout.write(` ok\n`);
+      } else if (a.type === 'env_create') {
+        process.stdout.write(
+          `  [+] creating environment ${JSON.stringify(a.localName)}...`
+        );
+        const created = await createEnvironment(a.config);
+        state.environments[a.localName] = { id: created.id, name: created.name };
+        process.stdout.write(` ok (id=${created.id})\n`);
+      } else if (a.type === 'env_update') {
+        process.stdout.write(
+          `  [~] updating environment ${JSON.stringify(a.localName)}...`
+        );
+        const updated = await updateEnvironment(a.id, a.config, a.remote);
+        state.environments[a.localName] = { id: updated.id, name: updated.name };
+        process.stdout.write(` ok\n`);
+      } else if (a.type === 'env_archive') {
+        process.stdout.write(
+          `  [-] archiving environment ${JSON.stringify(a.localName)}...`
+        );
+        await archiveEnvironment(a.id);
+        delete state.environments[a.localName];
         process.stdout.write(` ok\n`);
       }
     } catch (err) {

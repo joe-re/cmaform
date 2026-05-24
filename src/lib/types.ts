@@ -48,10 +48,16 @@ export interface MemoryStoreStateEntry {
   name: string;
 }
 
+export interface EnvironmentStateEntry {
+  id: string;
+  name: string;
+}
+
 export interface State {
   agents: Record<string, { id: string; version: number }>;
   skills: Record<string, SkillStateEntry>;
   memory_stores: Record<string, MemoryStoreStateEntry>;
+  environments: Record<string, EnvironmentStateEntry>;
 }
 
 export interface RemoteSkill {
@@ -89,6 +95,56 @@ export interface RemoteMemoryStore {
   name: string;
   description?: string | null;
   metadata?: Record<string, string>;
+  archived_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// ---------------- environments ----------------
+
+export interface EnvironmentUnrestrictedNetwork {
+  type: 'unrestricted';
+}
+
+export interface EnvironmentLimitedNetwork {
+  type: 'limited';
+  allowed_hosts?: string[];
+  allow_mcp_servers?: boolean;
+  allow_package_managers?: boolean;
+}
+
+export type EnvironmentNetworking =
+  | EnvironmentUnrestrictedNetwork
+  | EnvironmentLimitedNetwork;
+
+export interface EnvironmentPackages {
+  apt?: string[];
+  cargo?: string[];
+  gem?: string[];
+  go?: string[];
+  npm?: string[];
+  pip?: string[];
+}
+
+export interface EnvironmentCloudConfig {
+  type: 'cloud';
+  packages?: EnvironmentPackages;
+  networking?: EnvironmentNetworking;
+}
+
+export interface EnvironmentConfig {
+  name: string;
+  description?: string | null;
+  metadata?: Record<string, string>;
+  config: EnvironmentCloudConfig;
+}
+
+export interface RemoteEnvironment {
+  id: string;
+  name: string;
+  description?: string | null;
+  metadata?: Record<string, string>;
+  config: EnvironmentCloudConfig;
   archived_at?: string | null;
   created_at?: string;
   updated_at?: string;

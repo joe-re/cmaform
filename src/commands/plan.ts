@@ -4,6 +4,7 @@ import {
   formatErrorHeadline,
 } from '../lib/ansi.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
+import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets } from '../lib/plan.js';
 import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
@@ -24,6 +25,7 @@ export async function cmdPlan(
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
+  const environments = await loadAllEnvironmentConfigs();
 
   // Resolve every agent's `multiagent.agents[]` and `skills[]` references
   // (name → id, with forward-dep sentinels for refs that point inside this
@@ -57,6 +59,7 @@ export async function cmdPlan(
     configs,
     skills,
     memoryStores,
+    environments,
     resolutions
   );
 
