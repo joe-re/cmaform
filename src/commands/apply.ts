@@ -1,6 +1,11 @@
 import path from 'node:path';
 
 import { loadAllAgentConfigs } from '../lib/agents.js';
+import {
+  colorizeMany,
+  formatErrorDetail,
+  formatErrorHeadline,
+} from '../lib/ansi.js';
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
@@ -46,9 +51,13 @@ export async function cmdApply(
   }
   if (missing.length > 0) {
     process.stderr.write(
-      `error: the following name-based references could not be resolved (not in state, remote, or local config):\n`
+      formatErrorHeadline(
+        'the following name-based references could not be resolved (not in state, remote, or local config):'
+      ) + '\n'
     );
-    for (const m of missing) process.stderr.write(`  ${m}\n`);
+    for (const m of missing) {
+      process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+    }
     return 2;
   }
 
@@ -65,7 +74,9 @@ export async function cmdApply(
     const { filtered, unmatched } = filterActionsByTargets(allActions, targets);
     if (unmatched.length > 0) {
       process.stderr.write(
-        `error: the following resource names were not found in local YAML, state, or remote: ${unmatched.map(t => JSON.stringify(t)).join(', ')}\n`
+        formatErrorHeadline(
+          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map(t => JSON.stringify(t)).join(', ')}`
+        ) + '\n'
       );
       return 2;
     }
@@ -107,11 +118,17 @@ export async function cmdApply(
     }
     if (droppedDeps.length > 0) {
       process.stderr.write(
-        `error: target set is missing forward dependencies (they will be created in this run):\n`
+        formatErrorHeadline(
+          'target set is missing forward dependencies (they will be created in this run):'
+        ) + '\n'
       );
-      for (const d of droppedDeps) process.stderr.write(`  ${d}\n`);
+      for (const d of droppedDeps) {
+        process.stderr.write('  ' + formatErrorDetail(d) + '\n');
+      }
       process.stderr.write(
-        `Add the dependency to your target list, or omit the target filter.\n`
+        formatErrorDetail(
+          'Add the dependency to your target list, or omit the target filter.'
+        ) + '\n'
       );
       return 2;
     }
@@ -170,9 +187,9 @@ export async function cmdApply(
 
   if (!autoApprove) {
     const message = hasDanglingWarnings(actions)
-      ? (process.stdout.isTTY
-          ? '\n\x1b[1m\x1b[33mWARN:\x1b[0m one or more deletes / archives leave dangling references.\nProceed with these dangling deletes?'
-          : '\nWARN: one or more deletes / archives leave dangling references.\nProceed with these dangling deletes?')
+      ? '\n' +
+        colorizeMany(['bold', 'yellow'], 'WARN:') +
+        ' one or more deletes / archives leave dangling references.\nProceed with these dangling deletes?'
       : '\nDo you want to perform these actions?';
     const ok = await confirm(message);
     if (!ok) {

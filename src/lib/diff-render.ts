@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { stringify as stringifyYaml } from 'yaml';
 
+import { colorize, colorizeMany } from './ansi.js';
 import { CMAFORM_DIR } from './config.js';
 import type { Action, PlanWarning } from './plan.js';
 import { prettifySentinelsForDisplay } from './resolve.js';
@@ -39,31 +40,6 @@ function formatWarningLines(
   return refs + hint;
 }
 
-// Terraform-style palette:
-//   green  = create
-//   yellow = change / warning
-//   red    = destroy / delete
-//   dim    = secondary info (collapsed unchanged lines, reasons, etc)
-//   bold   = label emphasis (e.g. "WARN:")
-const ANSI = {
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  dim: '\x1b[2m',
-  bold: '\x1b[1m',
-  reset: '\x1b[0m',
-} as const;
-
-function colorize(code: keyof typeof ANSI, text: string): string {
-  if (!process.stdout.isTTY) return text;
-  return ANSI[code] + text + ANSI.reset;
-}
-
-/** Combine multiple ANSI codes (e.g. bold + yellow). */
-function colorizeMany(codes: (keyof typeof ANSI)[], text: string): string {
-  if (!process.stdout.isTTY) return text;
-  return codes.map(c => ANSI[c]).join('') + text + ANSI.reset;
-}
 
 /**
  * Recursively sort object keys so YAML serialization is deterministic. Array

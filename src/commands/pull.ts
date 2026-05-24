@@ -5,6 +5,7 @@ import {
   retrieveAgent,
   writeAgentYamlFromRemote,
 } from '../lib/agents.js';
+import { formatErrorHeadline } from '../lib/ansi.js';
 import {
   CMAFORM_DIR,
   SKILLS_DIR,
@@ -26,14 +27,18 @@ export async function cmdPull(query: string): Promise<number> {
   }
   if (!query.startsWith('agent_')) {
     process.stderr.write(
-      `pull expects an ID starting with 'agent_', 'skill_', or 'memstore_' (got: ${JSON.stringify(query)})\n`
+      formatErrorHeadline(
+        `pull expects an ID starting with 'agent_', 'skill_', or 'memstore_' (got: ${JSON.stringify(query)})`
+      ) + '\n'
     );
     return 2;
   }
 
   const agent = await retrieveAgent(query);
   if (!agent) {
-    process.stderr.write(`agent not found: ${query}\n`);
+    process.stderr.write(
+      formatErrorHeadline(`agent not found: ${query}`) + '\n'
+    );
     return 1;
   }
 
@@ -61,7 +66,9 @@ export async function cmdPull(query: string): Promise<number> {
 async function cmdPullSkill(skillId: string): Promise<number> {
   const remote = await retrieveSkill(skillId);
   if (!remote) {
-    process.stderr.write(`skill not found: ${skillId}\n`);
+    process.stderr.write(
+      formatErrorHeadline(`skill not found: ${skillId}`) + '\n'
+    );
     return 1;
   }
 
@@ -113,7 +120,9 @@ async function cmdPullSkill(skillId: string): Promise<number> {
 async function cmdPullMemoryStore(memstoreId: string): Promise<number> {
   const remote = await retrieveMemoryStore(memstoreId);
   if (!remote) {
-    process.stderr.write(`memory_store not found: ${memstoreId}\n`);
+    process.stderr.write(
+      formatErrorHeadline(`memory_store not found: ${memstoreId}`) + '\n'
+    );
     return 1;
   }
 

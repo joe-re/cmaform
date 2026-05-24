@@ -1,4 +1,8 @@
 import { loadAllAgentConfigs } from '../lib/agents.js';
+import {
+  formatErrorDetail,
+  formatErrorHeadline,
+} from '../lib/ansi.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets } from '../lib/plan.js';
@@ -38,9 +42,13 @@ export async function cmdPlan(
   }
   if (missing.length > 0) {
     process.stderr.write(
-      `error: the following name-based references could not be resolved (not in state, remote, or local config):\n`
+      formatErrorHeadline(
+        'the following name-based references could not be resolved (not in state, remote, or local config):'
+      ) + '\n'
     );
-    for (const m of missing) process.stderr.write(`  ${m}\n`);
+    for (const m of missing) {
+      process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+    }
     return 2;
   }
 
@@ -57,7 +65,9 @@ export async function cmdPlan(
     const { filtered, unmatched } = filterActionsByTargets(allActions, targets);
     if (unmatched.length > 0) {
       process.stderr.write(
-        `error: the following resource names were not found in local YAML, state, or remote: ${unmatched.map(t => JSON.stringify(t)).join(', ')}\n`
+        formatErrorHeadline(
+          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map(t => JSON.stringify(t)).join(', ')}`
+        ) + '\n'
       );
       return 2;
     }

@@ -11,6 +11,7 @@ import { cmdList } from './commands/list.js';
 import { cmdPlan } from './commands/plan.js';
 import { cmdPull } from './commands/pull.js';
 import { cmdSync } from './commands/sync.js';
+import { formatErrorHeadline } from './lib/ansi.js';
 import { CMAFORM_DIR, STATE_PATH } from './lib/config.js';
 
 function showHelp(): void {
@@ -49,7 +50,10 @@ async function main(): Promise<number> {
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY environment variable is not set');
+    process.stderr.write(
+      formatErrorHeadline('ANTHROPIC_API_KEY environment variable is not set') +
+        '\n'
+    );
     return 2;
   }
 
