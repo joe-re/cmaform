@@ -19,15 +19,18 @@ import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 
 /**
- * Update only the local state file to match the current remote. Never writes to remote.
+ * Initialize / reconcile the local state file against the current remote. Never writes to remote.
  *
  * - If an entry's remote is archived/missing, remove it from state.
  * - If an entry's version on remote differs, refresh it in state.
  * - If an entry's name on remote differs, rename it in state.
  * - If a local YAML exists without a state entry but a remote with the matching name
  *   exists, discover it and add to state.
+ *
+ * Equivalent in spirit to `terraform init` — set up the local state so subsequent
+ * `plan` / `apply` operate against an accurate view of the world.
  */
-export async function cmdRefresh(): Promise<number> {
+export async function cmdInit(): Promise<number> {
   const state = await loadState();
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();

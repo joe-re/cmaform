@@ -66,7 +66,7 @@ cmaform apply                                 # confirm → push to Anthropic
 | `cmaform plan [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
 | `cmaform apply [--yes\|-y] [target...]` | Show plan, prompt for confirmation, apply, save state |
 | `cmaform sync` | Re-fetch every entry in state from remote and rewrite local YAML |
-| `cmaform refresh` | Update **only** the state file to match remote (no remote writes) |
+| `cmaform init` | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`) |
 | `cmaform list` | Show local files / state / remote side-by-side |
 
 ### Filtering plan / apply
@@ -223,7 +223,7 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 }
 ```
 
-- Maintained by `pull` / `apply` / `sync` / `refresh`.
+- Maintained by `pull` / `apply` / `sync` / `init`.
 - Recommended to `.gitignore` (treat as the local source of truth, like a Terraform state file).
 - If someone shares a state file with you, run `cmaform sync` to regenerate the local YAML for every agent (skill bodies cannot be restored — see above).
 

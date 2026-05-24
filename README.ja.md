@@ -66,7 +66,7 @@ cmaform apply                                 # 確認 → Anthropic に反映
 | `cmaform plan [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
 | `cmaform apply [--yes\|-y] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
 | `cmaform sync` | state にある全 entry を remote から取り直し YAML を再生成 |
-| `cmaform refresh` | remote の現状に合わせ **state ファイルだけ** を更新 (remote 書き込みなし) |
+| `cmaform init` | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当) |
 | `cmaform list` | local files / state / remote を並べて表示 |
 
 ### plan / apply の絞り込み
@@ -223,7 +223,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 }
 ```
 
-- `pull` / `apply` / `sync` / `refresh` で更新されます
+- `pull` / `apply` / `sync` / `init` で更新されます
 - **`.gitignore` 推奨** (Terraform state ファイルと同様に、ローカルの真実として扱う)
 - 共有された state があれば、`cmaform sync` で agent 用 YAML を一括生成できます (skill 本体ファイルは前述の通り復元できません)
 

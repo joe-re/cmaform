@@ -6,10 +6,10 @@
  */
 
 import { cmdApply } from './commands/apply.js';
+import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
 import { cmdPlan } from './commands/plan.js';
 import { cmdPull } from './commands/pull.js';
-import { cmdRefresh } from './commands/refresh.js';
 import { cmdSync } from './commands/sync.js';
 import { CMAFORM_DIR, STATE_PATH } from './lib/config.js';
 
@@ -21,7 +21,7 @@ function showHelp(): void {
       `  cmaform pull <skill_id>           # import a remote skill into state only (SKILL.md is not generated)\n` +
       `  cmaform pull <memstore_id>        # import a remote memory_store (writes manifest.yaml + state)\n` +
       `  cmaform sync                      # rewrite YAML for every entry in state from remote\n` +
-      `  cmaform refresh                   # update the state file to match remote (no remote writes)\n` +
+      `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
       `  cmaform plan [target...]          # show diff (target = agents/skills/memory_stores or resource name)\n` +
       `  cmaform apply [--yes|-y] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
@@ -68,8 +68,8 @@ async function main(): Promise<number> {
         return 2;
       }
       return cmdPull(args[0]);
-    case 'refresh':
-      return cmdRefresh();
+    case 'init':
+      return cmdInit();
     case 'sync':
       return cmdSync();
     case 'list':
