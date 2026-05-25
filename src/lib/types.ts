@@ -151,7 +151,14 @@ export interface RemoteEnvironment {
   updated_at?: string;
 }
 
-// ---------------- vaults / credentials ----------------
+// ---------------- vaults ----------------
+//
+// NOTE: vault is still an evolving feature. The current scope is limited to
+// **vault create + archive** of the resource itself. Updating a vault's
+// display_name / metadata is not detected (vault_update is intentionally
+// absent from the Action union), and credentials are not yet managed at all.
+// The credentials sub-resource will be re-introduced in a future release
+// once the secret-resolution story is settled.
 
 export interface VaultConfig {
   display_name: string;
@@ -167,84 +174,9 @@ export interface RemoteVault {
   updated_at?: string;
 }
 
-export interface CredentialStaticBearerAuth {
-  type: 'static_bearer';
-  mcp_server_url: string;
-  /** secret — may be a literal or `${env:VAR_NAME}` placeholder. */
-  token: string;
-}
-
-export interface CredentialTokenEndpointAuthNone {
-  type: 'none';
-}
-
-export interface CredentialTokenEndpointAuthBasic {
-  type: 'client_secret_basic';
-  /** secret */
-  client_secret: string;
-}
-
-export interface CredentialTokenEndpointAuthPost {
-  type: 'client_secret_post';
-  /** secret */
-  client_secret: string;
-}
-
-export type CredentialTokenEndpointAuth =
-  | CredentialTokenEndpointAuthNone
-  | CredentialTokenEndpointAuthBasic
-  | CredentialTokenEndpointAuthPost;
-
-export interface CredentialOAuthRefresh {
-  token_endpoint: string;
-  client_id: string;
-  /** secret */
-  refresh_token: string;
-  scope?: string;
-  token_endpoint_auth: CredentialTokenEndpointAuth;
-}
-
-export interface CredentialMCPOAuthAuth {
-  type: 'mcp_oauth';
-  mcp_server_url: string;
-  /** secret */
-  access_token: string;
-  expires_at?: string;
-  refresh?: CredentialOAuthRefresh;
-}
-
-export type CredentialAuth =
-  | CredentialStaticBearerAuth
-  | CredentialMCPOAuthAuth;
-
-export interface CredentialConfig {
-  display_name?: string;
-  auth: CredentialAuth;
-}
-
-export interface RemoteCredential {
-  id: string;
-  vault_id: string;
-  display_name?: string | null;
-  archived_at?: string | null;
-  /** retrieve response — secret fields are stripped out by the API. */
-  auth: {
-    type: 'mcp_oauth' | 'static_bearer';
-    mcp_server_url: string;
-    expires_at?: string | null;
-    refresh?: {
-      token_endpoint: string;
-      client_id: string;
-      scope?: string | null;
-      token_endpoint_auth: { type: string };
-    } | null;
-  };
-}
-
 export interface VaultStateEntry {
   id: string;
   display_name: string;
-  credentials: Record<string, { id: string; mcp_server_url: string }>;
 }
 
 export interface FieldDiff {

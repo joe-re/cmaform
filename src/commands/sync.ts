@@ -258,7 +258,7 @@ export async function cmdSync(): Promise<number> {
     }
   }
 
-  // ----- vaults (manifest only — credentials/*.yaml is not regenerated) -----
+  // ----- vaults (manifest only — cmaform does not manage credentials yet) -----
   for (const localName of Object.keys(state.vaults)) {
     const entry = state.vaults[localName];
     const remote = await retrieveVault(entry.id);
@@ -292,7 +292,6 @@ export async function cmdSync(): Promise<number> {
       state.vaults[localName] = {
         id: remote.id,
         display_name: remote.display_name,
-        credentials: {},
       };
       process.stdout.write(
         `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`
@@ -319,7 +318,7 @@ export async function cmdSync(): Promise<number> {
       `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
       `  environments:  ${envWritten} written, ${envDiscovered} discovered, ${envSkipped} skipped\n` +
       `  vaults:        ${vaultWritten} written, ${vaultDiscovered} discovered, ${vaultSkipped} skipped\n` +
-      `  (skill content files such as SKILL.md, and credential secrets, cannot be fetched from the API and are not regenerated)\n`
+      `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`
   );
   return 0;
 }

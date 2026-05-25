@@ -152,13 +152,6 @@ export async function cmdList(): Promise<number> {
     console.log(
       `  ${path.relative(CMAFORM_DIR, vault.dirPath)}  display_name=${JSON.stringify(vault.config.display_name)}  ${idStr}`
     );
-    for (const [credName, cred] of vault.credentials) {
-      const trackedCred = tracked?.credentials[credName];
-      const credId = trackedCred ? `id=${trackedCred.id}` : 'untracked';
-      console.log(
-        `      credentials/${credName}.yaml  auth=${cred.config.auth.type}  ${credId}`
-      );
-    }
   }
 
   console.log('\n=== remote vaults ===');

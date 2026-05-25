@@ -1,6 +1,6 @@
 # cmaform examples
 
-A minimal sample config. Point `CMAFORM_DIR` at this directory to try `cmaform plan` immediately.
+A minimal sample config covering every resource type. Point `CMAFORM_DIR` at this directory to try `cmaform plan` immediately.
 
 ```sh
 cd /path/to/cmaform
@@ -13,5 +13,7 @@ Contents:
 - `agents/hello.yaml` — a simple greeting agent
 - `skills/hello-skill/SKILL.md` — a minimal skill (frontmatter + body only)
 - `memory_stores/hello-store/manifest.yaml` — a minimal memory store
+- `environments/hello-env/manifest.yaml` — a minimal cloud environment
+- `vaults/hello-vault/manifest.yaml` — a minimal vault (cmaform manages vault create + archive only; credentials are out of scope for now)
 
-Note: running `apply` against this config will actually write to the Anthropic API.
+> Warning: running `cmaform apply` against these examples will create real resources in your Anthropic workspace using the literal names `hello`, `hello-skill`, `hello-store`, `hello-env`, `hello-vault`. Apply only against a workspace you control, and unset / rename the examples before pointing cmaform at your real config.

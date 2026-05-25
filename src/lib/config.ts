@@ -23,4 +23,3 @@ export const STATE_PATH = path.join(CMAFORM_DIR, 'cmaform.state.json');
 export const MEMORY_STORE_MANIFEST_FILENAME = 'manifest.yaml';
 export const ENVIRONMENT_MANIFEST_FILENAME = 'manifest.yaml';
 export const VAULT_MANIFEST_FILENAME = 'manifest.yaml';
-export const VAULT_CREDENTIALS_DIRNAME = 'credentials';

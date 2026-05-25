@@ -13,20 +13,22 @@
 **cmaform** は **Anthropic Managed Agents / Skills / Memory Stores / Environments / Vaults** を Terraform 風のワークフローで declarative に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
 
 ```text
-  [~] update agent  "release-prep" (id=agent_01Qx..., version=6)
+  [~] update agent       "release-prep" (id=agent_01Qx..., version=6)
        file: agents/release-prep.yaml
        ~ system:
            ... (12 unchanged lines)
          - 既存ロジック...
          + 改修ロジック...
            ... (8 unchanged lines)
-  [+] create skill  "spec-lookup"
+  [+] create skill       "spec-lookup"
        dir:  skills/spec-lookup
        hash: 7b8b14094e01...
 
-Plan (agents):        0 to add, 1 to change, 0 to archive, 5 unchanged.
-Plan (skills):        1 to add, 0 to change, 0 to delete, 0 unchanged.
-Plan (memory_stores): 0 to add, 0 to change, 0 to archive, 0 unchanged.
+Plan (agents):         0 to add, 1 to change, 0 to archive, 5 unchanged.
+Plan (skills):         1 to add, 0 to change, 0 to delete, 0 unchanged.
+Plan (memory_stores):  0 to add, 0 to change, 0 to archive, 0 unchanged.
+Plan (environments):   0 to add, 0 to change, 0 to archive, 1 unchanged.
+Plan (vaults):         0 to archive, 1 unchanged.
 ```
 
 ## ⚡ クイックスタート
@@ -81,7 +83,7 @@ cmaform apply release-prep --yes         # agent 1 件だけ (確認スキップ
 cmaform apply skills release-prep        # 全 skill + release-prep agent
 ```
 
-種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults` / `credential` / `credentials`。
+種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults`。
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
@@ -94,14 +96,14 @@ cmaform pull agent_011CaSWcCrMdQdp4SA6TVdH6   # agents/<name>.yaml を生成
 cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state のみ更新 (SKILL.md は再生成しない)
 cmaform pull memstore_01ABC...                # memory_stores/<name>/manifest.yaml を生成
 cmaform pull env_015G...                      # environments/<name>/manifest.yaml を生成
-cmaform pull vlt_011CaQ...                    # vaults/<name>/manifest.yaml を生成 (credentials/* は再生成しない)
+cmaform pull vlt_011CaQ...                    # vaults/<name>/manifest.yaml を生成 (credentials は cmaform 管理対象外)
 ```
 
 Skill 本体ファイル (`SKILL.md` 等) は **API が content を返さない**ため、`pull` でも復元できません。state には ID / version / display_title だけが記録され、ローカルファイルは自分で書く必要があります。
 
 ## 📦 リソース
 
-cmaform は 3 種類のリソースを管理します。各々が構成ルートのサブディレクトリに置かれます。
+cmaform は 5 種類のリソース — **agents** / **skills** / **memory stores** / **environments** / **vaults** — を管理します。それぞれが構成ルート直下の独立したディレクトリに置かれます。(vault は cmaform で作成後、Anthropic Console 上で設定を行ってください。)
 
 ### Agent (`agents/<name>.yaml`)
 
@@ -262,70 +264,32 @@ metadata: {}
 
 ### Vault (`vaults/<localName>/`)
 
-vault は MCP server 用 credential を保持する入れ物。credentials は各 vault のサブディレクトリに配置します。
+> **対応状況:** ⚠️ *部分対応 — vault の設計は cmaform 側でまだ検討中です。*
+>
+> | 操作 | cmaform 対応 | 備考 |
+> | --- | --- | --- |
+> | Vault の作成 | ✅ | 新規 local manifest があれば作成される |
+> | Vault の archive | ✅ | local manifest を削除すると archive。API 側で credentials も cascade archive |
+> | Vault の更新 | ❌ | 初回作成後の `display_name` / `metadata` 変更は **plan に出ません**。リネームしたい場合は archive → 作り直し |
+> | Credential の管理 | ❌ | credential は cmaform 管理対象外です (secret 解決の設計待ち)。 attach / rotate は [Anthropic Vault Credentials API](https://platform.claude.com/docs/en/managed-agents/credentials) を直接使ってください |
+>
+> 将来リリースで vault update と secret backend 込みの credential 管理を順次サポート予定です。
+
+vault は MCP server 用 credential を保持する入れ物です。現リリースのローカル構成は意図的に最小限です:
 
 ```
 vaults/
 └── my-bot/
-    ├── manifest.yaml
-    └── credentials/
-        ├── slack.yaml
-        └── linear.yaml
+    └── manifest.yaml
 ```
 
-**`manifest.yaml`** — vault 本体:
+**`manifest.yaml`** — vault 定義:
 
 ```yaml
 display_name: my-bot
 metadata:
   external_user_id: bot
 ```
-
-**`credentials/<credLocalName>.yaml`** — 1 credential = 1 ファイル。`auth.type` は 2 種類サポート:
-
-```yaml
-# static_bearer の例
-display_name: my-bot-linear
-auth:
-  type: static_bearer
-  mcp_server_url: https://mcp.linear.app/mcp
-  token: ${env:LINEAR_TOKEN}
-```
-
-```yaml
-# mcp_oauth の例
-display_name: my-bot-slack
-auth:
-  type: mcp_oauth
-  mcp_server_url: https://mcp.slack.com/mcp
-  access_token: ${env:SLACK_ACCESS_TOKEN}
-  expires_at: '2099-12-31T23:59:59Z'
-  refresh:
-    token_endpoint: https://slack.com/api/oauth.v2.access
-    client_id: '1234567890.0987654321'
-    scope: channels:read chat:write
-    refresh_token: ${env:SLACK_REFRESH_TOKEN}
-    token_endpoint_auth:
-      type: client_secret_post
-      client_secret: ${env:SLACK_CLIENT_SECRET}
-```
-
-#### secret 値の指定方法
-
-credential の secret 系フィールド (`token` / `access_token` / `refresh_token` / `client_secret`) は Anthropic API 側で write-only です。以下 2 形式を受け付けます:
-
-- **リテラル**: `token: "actual-token-string"` (実 secret は commit しないこと)
-- **env 参照**: `token: ${env:VAR_NAME}` (apply 実行時に `process.env` から解決)
-
-`plan` 出力では secret 値は常に `<secret>` または `<secret: ${env:VAR_NAME}>` にマスクされ、実値が画面に出ることはありません。
-
-#### スコープ: credential は create + archive のみ
-
-本リリースでは **credential の create + archive のみ**対応。既存 credential の rotate / 変更は plan で検出しません。変更が必要なら YAML を削除して apply (archive)、新しい YAML を追加して再 apply (create) の運用です。
-
-- 差分対象 (vault 本体): `display_name` / `metadata`。通常の diff + update
-- credential の identity: ローカル YAML のファイル名と immutable な `auth.mcp_server_url`。state には `credentials[localName] = { id, mcp_server_url }` を記録
-- vault archive は API 側で credential を cascade archive。`plan` の WARN 部分に cascade される credential 一覧を表示
 
 ## 🗂️ ディレクトリ構成
 
@@ -342,9 +306,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ├── environments/
 │   └── <localName>/manifest.yaml
 ├── vaults/
-│   └── <localName>/
-│       ├── manifest.yaml
-│       └── credentials/*.yaml
+│   └── <localName>/manifest.yaml
 └── cmaform.state.json
 ```
 
@@ -370,13 +332,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
     "python-dev": { "id": "env_01...", "name": "python-dev" }
   },
   "vaults": {
-    "my-bot": {
-      "id": "vlt_01...",
-      "display_name": "my-bot",
-      "credentials": {
-        "slack": { "id": "vcrd_01...", "mcp_server_url": "https://mcp.slack.com/mcp" }
-      }
-    }
+    "my-bot": { "id": "vlt_01...", "display_name": "my-bot" }
   }
 }
 ```

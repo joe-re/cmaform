@@ -231,7 +231,6 @@ export async function cmdInit(): Promise<number> {
       state.vaults[localName] = {
         id: remote.id,
         display_name: remote.display_name,
-        credentials: {},
       };
       process.stdout.write(
         `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`

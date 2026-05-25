@@ -25,11 +25,8 @@ import {
 } from './skills.js';
 import type { State } from './types.js';
 import {
-  archiveCredential,
   archiveVault,
-  createCredential,
   createVault,
-  updateVault,
 } from './vaults.js';
 
 export async function executeActions(
@@ -77,16 +74,10 @@ export async function executeActions(
       continue;
     }
     if (a.type === 'vault_noop') {
-      const existing = state.vaults[a.localName];
       state.vaults[a.localName] = {
         id: a.id,
         display_name: a.display_name,
-        credentials: existing?.credentials ?? {},
       };
-      continue;
-    }
-    if (a.type === 'cred_noop') {
-      // Already tracked in state — nothing to do. (cred update is out of scope.)
       continue;
     }
 
@@ -224,53 +215,14 @@ export async function executeActions(
         state.vaults[a.localName] = {
           id: created.id,
           display_name: created.display_name,
-          credentials: {},
         };
         process.stdout.write(` ok (id=${created.id})\n`);
-      } else if (a.type === 'vault_update') {
-        process.stdout.write(
-          `  [~] updating vault ${JSON.stringify(a.localName)}...`
-        );
-        const updated = await updateVault(a.id, a.config, a.remote);
-        const existing = state.vaults[a.localName];
-        state.vaults[a.localName] = {
-          id: updated.id,
-          display_name: updated.display_name,
-          credentials: existing?.credentials ?? {},
-        };
-        process.stdout.write(` ok\n`);
       } else if (a.type === 'vault_archive') {
         process.stdout.write(
-          `  [-] archiving vault ${JSON.stringify(a.localName)} (cascades to ${a.cascadedCredentials.length} credential(s))...`
+          `  [-] archiving vault ${JSON.stringify(a.localName)}...`
         );
         await archiveVault(a.id);
         delete state.vaults[a.localName];
-        process.stdout.write(` ok\n`);
-      } else if (a.type === 'cred_create') {
-        process.stdout.write(
-          `  [+] creating credential ${JSON.stringify(a.vaultLocalName + '/' + a.credLocalName)}...`
-        );
-        const vaultEntry = state.vaults[a.vaultLocalName];
-        if (!vaultEntry) {
-          throw new Error(
-            `internal: vault "${a.vaultLocalName}" must be created before credential "${a.credLocalName}"`
-          );
-        }
-        const created = await createCredential(vaultEntry.id, a.config);
-        vaultEntry.credentials[a.credLocalName] = {
-          id: created.id,
-          mcp_server_url: a.config.auth.mcp_server_url,
-        };
-        process.stdout.write(` ok (id=${created.id})\n`);
-      } else if (a.type === 'cred_archive') {
-        process.stdout.write(
-          `  [-] archiving credential ${JSON.stringify(a.vaultLocalName + '/' + a.credLocalName)}...`
-        );
-        const vaultEntry = state.vaults[a.vaultLocalName];
-        if (vaultEntry) {
-          await archiveCredential(vaultEntry.id, a.id);
-          delete vaultEntry.credentials[a.credLocalName];
-        }
         process.stdout.write(` ok\n`);
       }
     } catch (err) {

@@ -22,11 +22,11 @@ function showHelp(): void {
       `  cmaform pull <skill_id>           # import a remote skill into state only (SKILL.md is not generated)\n` +
       `  cmaform pull <memstore_id>        # import a remote memory_store (writes manifest.yaml + state)\n` +
       `  cmaform pull <env_id>             # import a remote environment (writes manifest.yaml + state)\n` +
-      `  cmaform pull <vlt_id>             # import a remote vault (writes manifest.yaml + state; credentials NOT regenerated)\n` +
+      `  cmaform pull <vlt_id>             # import a remote vault (writes manifest.yaml + state; credentials are not managed by cmaform yet)\n` +
       `  cmaform sync                      # rewrite YAML for every entry in state from remote\n` +
       `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
       `  cmaform plan [--verbose|-v] [target...]\n` +
-      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults/credentials or resource name)\n` +
+      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults or resource name)\n` +
       `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +

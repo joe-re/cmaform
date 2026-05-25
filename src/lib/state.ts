@@ -49,12 +49,7 @@ export async function saveState(state: State): Promise<void> {
     sorted.environments[key] = state.environments[key];
   }
   for (const key of Object.keys(state.vaults).sort()) {
-    const v = state.vaults[key];
-    const sortedCreds: Record<string, { id: string; mcp_server_url: string }> = {};
-    for (const ck of Object.keys(v.credentials).sort()) {
-      sortedCreds[ck] = v.credentials[ck];
-    }
-    sorted.vaults[key] = { ...v, credentials: sortedCreds };
+    sorted.vaults[key] = state.vaults[key];
   }
   await fs.writeFile(
     STATE_PATH,

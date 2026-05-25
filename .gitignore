@@ -3,5 +3,8 @@ dist/
 *.log
 .DS_Store
 
+# session-local scratch (review reports, notes) — do NOT commit
+.local/
+
 # user state — do NOT commit
 cmaform.state.json

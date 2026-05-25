@@ -1,0 +1,10 @@
+name: hello-env
+description: Minimal example environment with a pinned pip package.
+config:
+  type: cloud
+  packages:
+    pip:
+      - requests
+  networking:
+    type: unrestricted
+metadata: {}

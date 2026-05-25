@@ -186,10 +186,18 @@ export async function uploadSkillVersion(
   id: string,
   skill: LocalSkill
 ): Promise<{ version: string }> {
-  // Workaround for an SDK 0.91.0 bug: `skills.versions.create` defaults its internal
-  // `stripFilenames` to true, which drops the folder prefix from each multipart filename
-  // (skills.create explicitly sets it to false). The API requires filenames of the form
-  // "<folder>/SKILL.md", so we build the FormData and POST it ourselves here.
+  // Workaround for an SDK bug still present in @anthropic-ai/sdk 0.98:
+  // `skills.versions.create` defaults its internal `stripFilenames` flag to
+  // true, which drops the folder prefix from each multipart filename, while
+  // `skills.create` explicitly passes false. The API requires filenames of
+  // the form "<folder>/SKILL.md", so we build the FormData and POST it
+  // ourselves here. Re-test against future SDK releases.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      'uploadSkillVersion requires ANTHROPIC_API_KEY to be set'
+    );
+  }
+
   const form = new FormData();
   for (const rel of skill.files) {
     const fullPath = path.join(skill.dirPath, rel);
@@ -203,7 +211,7 @@ export async function uploadSkillVersion(
     {
       method: 'POST',
       headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY ?? '',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
         'anthropic-beta': SKILLS_BETA,
       },
@@ -211,8 +219,15 @@ export async function uploadSkillVersion(
     }
   );
   if (!res.ok) {
+    // Truncate the response body before surfacing it so we don't bubble up
+    // any unexpectedly long server payload (or, hypothetically, an echoed
+    // request snippet) into the user's terminal.
     const text = await res.text();
-    throw new Error(`skill version create failed (${res.status}): ${text}`);
+    const truncated =
+      text.length > 500 ? text.slice(0, 500) + '… (truncated)' : text;
+    throw new Error(
+      `skill version create failed (HTTP ${res.status}): ${truncated}`
+    );
   }
   return (await res.json()) as { version: string };
 }

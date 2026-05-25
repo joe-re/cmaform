@@ -1,14 +1,19 @@
 {
   "name": "cmaform",
   "version": "0.1.0",
-  "description": "Terraform-style declarative management for Anthropic Managed Agents, Skills, and Memory Stores.",
+  "description": "Terraform-style declarative management for Anthropic Managed Agents, Skills, Memory Stores, Environments, and Vaults.",
   "keywords": [
     "anthropic",
     "claude",
+    "claude-code",
     "managed-agents",
     "agents",
     "skills",
     "memory-stores",
+    "environments",
+    "vaults",
+    "mcp",
+    "anthropic-sdk",
     "terraform",
     "cli",
     "iac"
@@ -43,7 +48,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.91.0",
+    "@anthropic-ai/sdk": "^0.98.0",
     "yaml": "^2.6.0"
   },
   "devDependencies": {

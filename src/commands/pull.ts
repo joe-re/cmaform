@@ -173,10 +173,8 @@ async function cmdPullEnvironment(envId: string): Promise<number> {
 
 /**
  * Import a remote vault (by vlt_id), generating `vaults/<localName>/manifest.yaml`
- * and registering it in state. Credentials are NOT pulled: secret material is
- * write-only on the Anthropic API, so cmaform cannot reconstruct
- * credentials/*.yaml. Use `cmaform list` to see the credential IDs that
- * already exist on the vault.
+ * and registering it in state. cmaform does not manage vault credentials yet —
+ * any credentials attached to the vault are left untouched on the server.
  */
 async function cmdPullVault(vaultId: string): Promise<number> {
   const remote = await retrieveVault(vaultId);
@@ -204,14 +202,12 @@ async function cmdPullVault(vaultId: string): Promise<number> {
     `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
   );
   process.stderr.write(
-    `==> NOTE: credential secret values are not retrievable from the API; credentials/*.yaml is not regenerated.\n`
+    `==> NOTE: vault credentials are not managed by cmaform yet; any existing credentials remain attached on the server.\n`
   );
 
-  const existing = state.vaults[localName];
   state.vaults[localName] = {
     id: remote.id,
     display_name: remote.display_name,
-    credentials: existing?.credentials ?? {},
   };
   await saveState(state);
   process.stderr.write(

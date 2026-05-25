@@ -109,9 +109,6 @@ export async function cmdApply(
         inTarget.add(`environment:${(a as { localName: string }).localName}`);
       } else if (a.type.startsWith('vault_')) {
         inTarget.add(`vault:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('cred_')) {
-        const c = a as { vaultLocalName: string; credLocalName: string };
-        inTarget.add(`credential:${c.vaultLocalName}/${c.credLocalName}`);
       }
     }
     const droppedDeps: string[] = [];
@@ -203,7 +200,6 @@ export async function cmdApply(
           state.vaults[a.localName] = {
             id: a.id,
             display_name: a.display_name,
-            credentials: existing?.credentials ?? {},
           };
           stateChanged = true;
         }

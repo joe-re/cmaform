@@ -11,7 +11,7 @@ import type {
 /**
  * Build-time context for resolving name-based references in agent YAML.
  *
- * Lookup order (see name-based-dependency-resolution.md):
+ * Lookup order:
  *   1. cmaform.state.json (`state.agents[name]` / `state.skills[localName]`)
  *   2. Remote (cached after first lookup)
  *   3. Local apply set (agents in local YAML / skills as local directories)
