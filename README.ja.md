@@ -83,7 +83,15 @@ cmaform apply release-prep --yes         # agent 1 件だけ (確認スキップ
 cmaform apply skills release-prep        # 全 skill + release-prep agent
 ```
 
-種別の別名: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults`。
+`<target>` は **種別の別名** (= その種類のリソース全体に一致) か、**個別リソースの名前** (= 1 つのリソースだけに一致) のどちらかとして解釈されます。下表の別名のいずれにも当たらない場合、target は個別リソース名として扱われます。
+
+| リソース | 種別の別名 | 個別リソース名のフォーマット | 例 |
+| --- | --- | --- | --- |
+| Agent | `agent` / `agents` | YAML の `name:` フィールド | `release-prep` (`agents/release-prep.yaml`) |
+| Skill | `skill` / `skills` | `skills/` 配下のディレクトリ名 | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
+| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | `memory_stores/` 配下のディレクトリ名 | `team-notes` (`memory_stores/team-notes/`) |
+| Environment | `environment` / `environments` / `env` / `envs` | `environments/` 配下のディレクトリ名 | `python-dev` (`environments/python-dev/`) |
+| Vault | `vault` / `vaults` | `vaults/` 配下のディレクトリ名 | `my-bot` (`vaults/my-bot/`) |
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
@@ -178,13 +186,13 @@ skills:
     version: latest                  # 省略可
 ```
 
-従来の `skill_id: skill_01XXXXXX` 形式 (`type: custom`) も引き続き使えます。解決ルールは下の [Name-based references (論理名参照)](#-name-based-references-論理名参照) を参照してください。
+raw ID 形式 (`skill_id: skill_01XXXXXX`、 `type: custom`) も受け付けます。`name` と `skill_id` はどちらでも書けます。解決ルールは下の [Name-based references (論理名参照)](#-name-based-references-論理名参照) を参照してください。
 
-> ⚠️ Skill には archive 概念がありません。ディレクトリを消して `apply` を実行すると、**全 version ごと完全削除**されます。
+> ⚠️ Skill には archive がありません。ディレクトリを消して `apply` を実行すると、**全 version ごと完全削除**されます。
 
 ### 🔗 Name-based references (論理名参照)
 
-`multiagent.agents[]` と `skills[]` は raw ID 直書きに加え、**論理名 (logical name)** での参照を受け付けます。論理名は `plan` / `apply` 時に解決されるため、workspace 固有 ID を YAML に書き込まずに済み、新規 workspace へ移しても `cmaform apply` 一発でブートストラップできます。
+`multiagent.agents[]` と `skills[]` は raw ID だけではなく、**論理名 (logical name)** での参照を受け付けます。論理名は `plan` / `apply` 時に解決されるため、workspace 固有 ID を YAML に書き込まずに参照させることができます。
 
 ```yaml
 # agents/coordinator.yaml
@@ -208,19 +216,15 @@ skills:
 3. 同 run の apply セット — 当該 name の YAML が local にあり、今回作成される予定であれば **forward dependency** として扱う。plan 中は placeholder で表示し、依存先が作成された直後に実 ID で置換する
 4. いずれにも当たらない場合は `plan` / `apply` を中断し、未解決の name を明示
 
-#### 適用順序 (topological sort)
-
-coordinator が同じ apply セット内の sub-agent / skill を名前参照しているとき、依存される側 (sub-agent / skill) が先に apply されるよう並べ替えます。`multiagent.agents` 間の循環参照は防御的に検出してエラーになります。
-
 #### `pull` / `sync` での書き戻し
 
 remote から YAML を書き出す際、`id` / `skill_id` のうち state で track されているものは自動的に `name:` 形式に置換されます。state に無い ID はそのまま `id` 形式で残します。
 
-#### 既存 ID 形式との互換
+#### raw ID 形式
 
-既存の `{ type: agent, id: agent_... }` / `{ type: custom, skill_id: skill_... }` 形式はそのまま動作します。1 つのエントリで両形式は排他です (`name` か `id` のどちらか一方)。
+`{ type: agent, id: agent_... }` / `{ type: custom, skill_id: skill_... }` 形式も受け付けます。name 形式と挙動は同じです。1 つのエントリで両形式は排他なので、`name` か raw `id` / `skill_id` のどちらか一方で書いてください。
 
-`type: anthropic` の skill (`xlsx` のような well-known ID) は引き続き `skill_id` 形式を使ってください。`type: self` の agent 参照は変更ありません。
+`type: anthropic` の skill (`xlsx` のような well-known ID) は `skill_id` 形式を使います。`type: self` の agent 参照はどちらも使いません。
 
 ### Memory Store (`memory_stores/<localName>/manifest.yaml`)
 
@@ -351,7 +355,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ## ⚠️ 注意点
 
 - Agent の `name` を変えると **新しい agent として作成**されます。リネームしたい場合は、旧 YAML を削除 → `apply` で旧 agent を archive → 新 name の YAML を追加、の順で実施してください。
-- Skill ディレクトリを消して `apply` するのは **破壊的**です。skill には archive 概念がありません。
+- Skill ディレクトリを消して `apply` するのは **破壊的**です。skill には archive がありません。
 - 完全な再現性のためには Anthropic Console で手動変更を加えないでください。常に YAML / `SKILL.md` / `manifest.yaml` 経由で更新します。
 
 ## 🛠️ 開発
@@ -363,14 +367,6 @@ pnpm typecheck
 pnpm build             # tsup で dist/cli.js にバンドル
 node dist/cli.js --help
 ```
-
-## 🏗️ アーキテクチャ
-
-- **CLI**: 単一ファイル Node.js スクリプト (~2.2k LOC)。サブコマンドは `src/cli.ts` の `main()` で dispatch
-- **SDK**: `@anthropic-ai/sdk` (`beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*`)
-- **Skill upload**: 初回作成は SDK 経由。version 更新は API が要求する `<skillName>/<rel>` の filename prefix を保持するため、`fetch` + `FormData` で `multipart/form-data` を自前 POST
-- **差分表示**: LCS ベースの行差分 + 前後 2 行のコンテキスト圧縮 + TTY 時のみ ANSI カラー化
-- **ビルド**: `tsup` で `#!/usr/bin/env node` shebang 付き ESM bundle を出力
 
 ## 📋 要件
 

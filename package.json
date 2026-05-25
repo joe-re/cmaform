@@ -36,6 +36,8 @@
     "dist",
     "README.md",
     "README.ja.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {

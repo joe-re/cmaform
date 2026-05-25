@@ -83,7 +83,15 @@ cmaform apply release-prep --yes         # a single agent, skip confirmation
 cmaform apply skills release-prep        # all skills + one agent
 ```
 
-Kind aliases: `agent` / `agents` / `skill` / `skills` / `memory_store` / `memory_stores` / `memstore` / `memstores` / `environment` / `environments` / `env` / `envs` / `vault` / `vaults`.
+A `<target>` is either a **kind alias** (matches every resource of that type) or the **individual name** of one specific resource. Use the table below for kind aliases; anything else is treated as a resource name.
+
+| Resource | Kind aliases | Individual name format | Example |
+| --- | --- | --- | --- |
+| Agent | `agent` / `agents` | `name:` field in the YAML | `release-prep` (`agents/release-prep.yaml`) |
+| Skill | `skill` / `skills` | directory name under `skills/` | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
+| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | directory name under `memory_stores/` | `team-notes` (`memory_stores/team-notes/`) |
+| Environment | `environment` / `environments` / `env` / `envs` | directory name under `environments/` | `python-dev` (`environments/python-dev/`) |
+| Vault | `vault` / `vaults` | directory name under `vaults/` | `my-bot` (`vaults/my-bot/`) |
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
@@ -178,14 +186,13 @@ skills:
     version: latest                  # optional
 ```
 
-The legacy `skill_id: skill_01XXXXXX` form is still accepted for `type: custom`. See
-[Name-based references](#-name-based-references) below for resolution semantics.
+The raw-ID form (`skill_id: skill_01XXXXXX`) is also accepted for `type: custom` — `name` and `skill_id` are interchangeable. See [Name-based references](#-name-based-references) below for resolution semantics.
 
-> ⚠️ Skills have no archive concept. Deleting the directory and running `apply` permanently deletes the skill **and all of its versions**.
+> ⚠️ Skills cannot be archived. Deleting the directory and running `apply` permanently deletes the skill **and all of its versions**.
 
 ### 🔗 Name-based references
 
-`multiagent.agents[]` and `skills[]` accept references by **logical name** in addition to raw IDs. Names are resolved at `plan` / `apply` time so you can ship a YAML repo without any workspace-specific IDs and bootstrap a new workspace with a single `cmaform apply`.
+`multiagent.agents[]` and `skills[]` accept references by **logical name** in addition to raw IDs. Names are resolved at `plan` / `apply` time, so YAML can reference resources without committing any workspace-specific IDs.
 
 ```yaml
 # agents/coordinator.yaml
@@ -210,19 +217,15 @@ Resolution order for each name:
 
 If none of the above match, `plan` / `apply` fails with an error pointing at the unresolved name.
 
-#### Topological apply ordering
-
-When a coordinator agent has name-based references to other resources in the same apply set, cmaform reorders actions so that sub-agents and skills are created before the coordinator that depends on them. Cycles among `multiagent.agents` references are detected and surfaced as errors.
-
 #### `pull` / `sync` write back in name form
 
 When writing remote agents back to YAML, cmaform replaces any `id` / `skill_id` that resolves to a known local name with the name form. IDs for resources not tracked in state are kept as-is.
 
-#### Legacy ID form
+#### Raw-ID form
 
-Existing `{ type: agent, id: agent_... }` and `{ type: custom, skill_id: skill_... }` references continue to work unchanged. The two forms are mutually exclusive within a single entry (`name` *or* `id`).
+`{ type: agent, id: agent_... }` and `{ type: custom, skill_id: skill_... }` are also accepted and behave identically to the name form. The two forms are mutually exclusive within a single entry — use either `name` *or* the raw `id` / `skill_id`, not both.
 
-`type: anthropic` skills (well-known IDs like `xlsx`) always use the `skill_id` form. `type: self` agent references are unchanged.
+`type: anthropic` skills (well-known IDs like `xlsx`) always use the `skill_id` form. `type: self` agent references take neither.
 
 ### Memory Store (`memory_stores/<localName>/manifest.yaml`)
 
@@ -365,14 +368,6 @@ pnpm typecheck
 pnpm build             # bundle to dist/cli.js via tsup
 node dist/cli.js --help
 ```
-
-## 🏗️ Architecture
-
-- **CLI**: single-file Node.js script (~2.2k LOC). Subcommands are dispatched in `src/cli.ts`.
-- **SDK**: `@anthropic-ai/sdk` (`beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*`).
-- **Skill upload**: SDK is used for the initial create. For version updates, cmaform posts `multipart/form-data` directly via `fetch` to preserve the `<skillName>/<rel>` filename prefix that the API requires.
-- **Diff rendering**: LCS-based line diff with 2-line context windows and ANSI colors when the output is a TTY.
-- **Build**: `tsup` → single ESM bundle with a `#!/usr/bin/env node` shebang.
 
 ## 📋 Requirements
 
