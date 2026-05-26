@@ -1,6 +1,6 @@
 {
   "name": "cmaform",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Terraform-style declarative management for Anthropic Managed Agents, Skills, Memory Stores, Environments, and Vaults.",
   "keywords": [
     "agents",

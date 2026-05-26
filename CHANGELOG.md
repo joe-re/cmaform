@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-27
+
 ### Added
 
 - `cmaform fmt` subcommand: rewrite `multiagent.agents[].id` /
@@ -25,6 +27,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   and verifies it matches the pinned ID. Mismatches abort `plan` /
   `apply` with a clear error. Useful as a safety net during migration
   from id-based to name-based references.
+- Project-local release procedure skill for preparing, verifying, and
+  publishing cmaform releases.
+
+### Changed
+
+- CI now runs format, lint, typecheck, test, build, and CLI help checks with
+  pnpm 11 from `packageManager`.
+- Development workflow now uses `oxfmt`, `oxlint`, `lefthook`, and broader
+  unit coverage for lib-level planning, warning, normalization, and diff logic.
 
 ## [0.1.0] - 2026-05-25
 
@@ -83,5 +94,6 @@ Initial public release.
 - `dist/cli.js.map` is intentionally not shipped in the npm tarball.
 - `pnpm audit` clean against `@anthropic-ai/sdk` 0.98.0 and `yaml` 2.x.
 
-[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/joe-re/cmaform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joe-re/cmaform/releases/tag/v0.1.0
