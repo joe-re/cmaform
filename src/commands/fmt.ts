@@ -5,6 +5,7 @@ import { listAgentFiles } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
 import { CMAFORM_DIR } from '../lib/config.js';
 import { loadState } from '../lib/state.js';
+import type { State } from '../lib/types.js';
 
 /**
  * Rewrite every local agent YAML so that `multiagent.agents[].id` and
@@ -42,31 +43,13 @@ export async function cmdFmt(): Promise<number> {
     return 2;
   }
 
-  const agentRewrites = idLookups('id', state.agents);
-  const skillRewrites = idLookups('skill_id', state.skills);
-
   const files = await listAgentFiles();
   let filesRewritten = 0;
   let refsRewritten = 0;
 
   for (const filePath of files) {
     const before = await fs.readFile(filePath, 'utf-8');
-    let after = before;
-    let changed = 0;
-
-    for (const { pattern, name } of agentRewrites) {
-      after = after.replace(pattern, (_match, indent, _quote, comment) => {
-        changed++;
-        return `${indent}name: ${name}${comment ?? ''}`;
-      });
-    }
-    for (const { pattern, name } of skillRewrites) {
-      after = after.replace(pattern, (_match, indent, _quote, comment) => {
-        changed++;
-        return `${indent}name: ${name}${comment ?? ''}`;
-      });
-    }
-
+    const { text: after, changed } = rewriteYamlRefsToNameForm(before, state);
     if (changed === 0) continue;
     await fs.writeFile(filePath, after, 'utf-8');
     process.stdout.write(
@@ -86,6 +69,30 @@ export async function cmdFmt(): Promise<number> {
     `\nfmt complete: rewrote ${refsRewritten} reference(s) across ${filesRewritten} file(s).\n`
   );
   return 0;
+}
+
+/**
+ * Pure helper: rewrite a single agent YAML file's text content so that
+ * `id: <agentId>` / `skill_id: <skillId>` lines whose ID is tracked in
+ * `state` become `name: <localName>`. Returns the new text and the count
+ * of rewrites. Exported for unit testing.
+ */
+export function rewriteYamlRefsToNameForm(
+  text: string,
+  state: Pick<State, 'agents' | 'skills'>
+): { text: string; changed: number } {
+  const agentRewrites = idLookups('id', state.agents);
+  const skillRewrites = idLookups('skill_id', state.skills);
+
+  let out = text;
+  let changed = 0;
+  for (const { pattern, name } of [...agentRewrites, ...skillRewrites]) {
+    out = out.replace(pattern, (_match, indent, _quote, comment) => {
+      changed++;
+      return `${indent}name: ${name}${comment ?? ''}`;
+    });
+  }
+  return { text: out, changed };
 }
 
 /**
