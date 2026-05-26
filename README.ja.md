@@ -64,12 +64,13 @@ cmaform apply                                 # 確認 → Anthropic に反映
 
 | コマンド | 説明 |
 | --- | --- |
-| `cmaform pull <id>` | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む |
+| `cmaform pull <id> [--by-id]` | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
 | `cmaform plan [--verbose\|-v] [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
-| `cmaform sync` | state にある全 entry を remote から取り直し YAML を再生成 |
+| `cmaform sync [--by-id]` | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
 | `cmaform init` | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当) |
 | `cmaform list` | local files / state / remote を並べて表示 |
+| `cmaform fmt` | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す |
 
 ### plan / apply の絞り込み
 
@@ -220,9 +221,13 @@ skills:
 
 remote から YAML を書き出す際、`id` / `skill_id` のうち state で track されているものは自動的に `name:` 形式に置換されます。state に無い ID はそのまま `id` 形式で残します。
 
+書き戻し時の自動置換を無効化したい場合は `pull` / `sync` に `--by-id` を渡してください。生 ID 形式のまま YAML に出力されます。
+
 #### raw ID 形式
 
-`{ type: agent, id: agent_... }` / `{ type: custom, skill_id: skill_... }` 形式も受け付けます。name 形式と挙動は同じです。1 つのエントリで両形式は排他なので、`name` か raw `id` / `skill_id` のどちらか一方で書いてください。
+`{ type: agent, id: agent_... }` / `{ type: custom, skill_id: skill_... }` 形式も受け付けます。name 形式と挙動は同じです。
+
+エントリに **`name:` と `id:` (または `skill_id:`) を両方書いた**場合、cmaform は name 解決の結果とピン留めされた ID が一致するか検査し、不一致なら `plan` / `apply` を中断します。id 形式から name 形式への移行期に safety net として使えます。整合が取れたら `cmaform fmt` で raw ID を落とせます。
 
 `type: anthropic` の skill (`xlsx` のような well-known ID) は `skill_id` 形式を使います。`type: self` の agent 参照はどちらも使いません。
 

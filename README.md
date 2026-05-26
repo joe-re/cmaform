@@ -64,12 +64,13 @@ cmaform apply                                 # confirm → push to Anthropic
 
 | Command | What it does |
 | --- | --- |
-| `cmaform pull <id>` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state |
+| `cmaform pull <id> [--by-id]` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting `multiagent.agents[]` / `skills[]` to the name form |
 | `cmaform plan [--verbose\|-v] [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state |
-| `cmaform sync` | Re-fetch every entry in state from remote and rewrite local YAML |
+| `cmaform sync [--by-id]` | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form |
 | `cmaform init` | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`) |
 | `cmaform list` | Show local files / state / remote side-by-side |
+| `cmaform fmt` | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup |
 
 ### Filtering plan / apply
 
@@ -221,9 +222,13 @@ If none of the above match, `plan` / `apply` fails with an error pointing at the
 
 When writing remote agents back to YAML, cmaform replaces any `id` / `skill_id` that resolves to a known local name with the name form. IDs for resources not tracked in state are kept as-is.
 
+Pass `--by-id` to `pull` / `sync` to opt out of the rewrite and keep raw IDs in the written YAML.
+
 #### Raw-ID form
 
-`{ type: agent, id: agent_... }` and `{ type: custom, skill_id: skill_... }` are also accepted and behave identically to the name form. The two forms are mutually exclusive within a single entry — use either `name` *or* the raw `id` / `skill_id`, not both.
+`{ type: agent, id: agent_... }` and `{ type: custom, skill_id: skill_... }` are also accepted and behave identically to the name form.
+
+If an entry writes **both** `name:` and `id:` (or `skill_id:`), cmaform resolves the name and asserts that it matches the pinned ID. Mismatches abort `plan` / `apply` with a clear error. This is useful as a safety net while migrating from id-based references — `cmaform fmt` can then drop the redundant raw IDs once everything verifies.
 
 `type: anthropic` skills (well-known IDs like `xlsx`) always use the `skill_id` form. `type: self` agent references take neither.
 

@@ -59,15 +59,47 @@ function canonicalize(v: unknown): unknown {
   return v;
 }
 
+/**
+ * Reverse-map id → local name used for plan-display annotations.
+ * Populated by callers from cmaform.state.json.
+ */
+let displayIdMap: {
+  agents: Map<string, string>;
+  skills: Map<string, string>;
+} | null = null;
+
+function setDisplayIdMap(map: typeof displayIdMap): void {
+  displayIdMap = map;
+}
+
+/**
+ * Append `  # <local-name>` comments to lines that look like
+ * `id: agent_…` or `skill_id: skill_…` whose ID is tracked in state.
+ * Lets readers tell at a glance which sub-agent / skill an apparently
+ * opaque ID corresponds to.
+ */
+function annotateIds(yamlText: string): string {
+  if (!displayIdMap) return yamlText;
+  const { agents, skills } = displayIdMap;
+  return yamlText.replace(
+    /^\s*(?:- )?(?:id|skill_id): (?:'|")?(agent_[A-Za-z0-9]+|skill_[A-Za-z0-9]+)(?:'|")?$/gm,
+    (match, id: string) => {
+      const map = id.startsWith('agent_') ? agents : skills;
+      const name = map.get(id);
+      if (!name) return match;
+      return `${match}  ${colorize('dim', `# = ${name}`)}`;
+    }
+  );
+}
+
 function serializeForDiff(v: unknown): string[] {
   if (v === undefined || v === null) return ['(unset)'];
   if (typeof v === 'string')
     return v.length === 0 ? ['(empty)'] : v.split('\n');
   if (typeof v !== 'object') return [String(v)];
   try {
-    return stringifyYaml(canonicalize(v), { lineWidth: 0 })
-      .trimEnd()
-      .split('\n');
+    const yamlText = stringifyYaml(canonicalize(v), { lineWidth: 0 }).trimEnd();
+    return annotateIds(yamlText).split('\n');
   } catch {
     return JSON.stringify(canonicalize(v), null, 2).split('\n');
   }
@@ -138,9 +170,14 @@ function collapseUnchanged(ops: DiffOp[], context: number): RenderOp[] {
 }
 
 // Options controlling plan rendering. `verbose` disables the collapse of
-// long-text fields in create actions.
+// long-text fields in create actions. `idToName` maps power the per-line
+// "# = <name>" annotation rendered next to known IDs in the diff.
 export interface PrintPlanOptions {
   verbose?: boolean;
+  /** id → localName for agents (built from state.agents at the call site). */
+  agentIdToName?: Map<string, string>;
+  /** id → localName for skills (built from state.skills at the call site). */
+  skillIdToName?: Map<string, string>;
 }
 
 /**
@@ -252,6 +289,10 @@ export function printPlan(
   actions: Action[],
   opts: PrintPlanOptions = {}
 ): void {
+  setDisplayIdMap({
+    agents: opts.agentIdToName ?? new Map(),
+    skills: opts.skillIdToName ?? new Map(),
+  });
   let creates = 0;
   let updates = 0;
   let deletes = 0;
