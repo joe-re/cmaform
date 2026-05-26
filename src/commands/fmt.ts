@@ -1,17 +1,19 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  parseDocument,
+  type Node,
+  type YAMLMap,
+} from 'yaml';
 
-import { listAgentFiles, readAgentYaml } from '../lib/agents.js';
+import { listAgentFiles } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
 import { CMAFORM_DIR } from '../lib/config.js';
-import {
-  rewriteAgentRefsToNameForm,
-  rewriteSkillRefsToNameForm,
-} from '../lib/resolve.js';
 import { loadState } from '../lib/state.js';
-import type { AgentConfig, State } from '../lib/types.js';
 
 /**
  * Rewrite every local agent YAML so that `multiagent.agents[].id` and
@@ -21,7 +23,8 @@ import type { AgentConfig, State } from '../lib/types.js';
  * untouched (typically Anthropic-provided skills like `xlsx` or external
  * agent IDs that have not been pulled locally yet).
  *
- * The rewrite is a no-op on YAML that already uses the name form.
+ * Rewrites are applied directly to the parsed YAML Document tree, so
+ * user-authored comments and overall key ordering are preserved.
  *
  * One-shot migration helper for repositories that have been managing
  * `multiagent.agents` with hand-copied IDs and now want to switch to the
@@ -42,24 +45,62 @@ export async function cmdFmt(): Promise<number> {
     return 2;
   }
 
+  const agentIdToName = buildIdToNameMap(state.agents);
+  const skillIdToLocalName = buildIdToNameMap(state.skills);
+
   const files = await listAgentFiles();
   let filesRewritten = 0;
   let refsRewritten = 0;
 
   for (const filePath of files) {
-    const before = await readAgentYaml(filePath);
-    const result = rewriteConfig(before, state);
-    if (result.changed === 0) continue;
-    await writeAgentYaml(filePath, result.config);
+    const text = await fs.readFile(filePath, 'utf-8');
+    const doc = parseDocument(text);
+    let changed = 0;
+
+    const multiagent = doc.get('multiagent', true);
+    if (isMap(multiagent)) {
+      const agents = multiagent.get('agents', true);
+      if (isSeq(agents)) {
+        for (const item of agents.items) {
+          if (!isMap(item)) continue;
+          if (getStringField(item, 'type') !== 'agent') continue;
+          const id = getStringField(item, 'id');
+          if (!id) continue;
+          const name = agentIdToName.get(id);
+          if (!name) continue;
+          replaceKey(item, 'id', 'name', name);
+          changed++;
+        }
+      }
+    }
+
+    const skills = doc.get('skills', true);
+    if (isSeq(skills)) {
+      for (const item of skills.items) {
+        if (!isMap(item)) continue;
+        if (getStringField(item, 'type') !== 'custom') continue;
+        const id = getStringField(item, 'skill_id');
+        if (!id) continue;
+        const localName = skillIdToLocalName.get(id);
+        if (!localName) continue;
+        replaceKey(item, 'skill_id', 'name', localName);
+        changed++;
+      }
+    }
+
+    if (changed === 0) continue;
+    await fs.writeFile(filePath, String(doc), 'utf-8');
     process.stdout.write(
-      `  [~] ${path.relative(CMAFORM_DIR, filePath)}: rewrote ${result.changed} reference(s)\n`
+      `  [~] ${path.relative(CMAFORM_DIR, filePath)}: rewrote ${changed} reference(s)\n`
     );
     filesRewritten++;
-    refsRewritten += result.changed;
+    refsRewritten += changed;
   }
 
   if (filesRewritten === 0) {
-    process.stdout.write('No changes — every agent YAML already uses the name form.\n');
+    process.stdout.write(
+      'No changes — every agent YAML already uses the name form.\n'
+    );
     return 0;
   }
   process.stdout.write(
@@ -68,69 +109,38 @@ export async function cmdFmt(): Promise<number> {
   return 0;
 }
 
-interface RewriteResult {
-  config: AgentConfig;
-  changed: number;
+function buildIdToNameMap(
+  entries: Record<string, { id: string }>
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const [name, entry] of Object.entries(entries)) m.set(entry.id, name);
+  return m;
 }
 
-function rewriteConfig(config: AgentConfig, state: State): RewriteResult {
-  let changed = 0;
-  const out: AgentConfig = { ...config };
-
-  if (out.multiagent && Array.isArray(out.multiagent.agents)) {
-    const original = out.multiagent.agents;
-    const rewritten = rewriteAgentRefsToNameForm(
-      original as unknown[],
-      state
-    ) as typeof original | undefined;
-    if (rewritten && !shallowEqualArr(original, rewritten)) {
-      changed += countDifferences(original, rewritten);
-      out.multiagent = { ...out.multiagent, agents: rewritten };
-    }
-  }
-
-  if (Array.isArray(out.skills)) {
-    const rewritten = rewriteSkillRefsToNameForm(
-      out.skills as unknown[],
-      state
-    ) as unknown[] | undefined;
-    if (rewritten && !shallowEqualArr(out.skills, rewritten)) {
-      changed += countDifferences(out.skills, rewritten);
-      out.skills = rewritten;
-    }
-  }
-
-  return { config: out, changed };
+function getStringField(map: YAMLMap, key: string): string | null {
+  const node = map.get(key, true) as Node | undefined;
+  if (isScalar(node) && typeof node.value === 'string') return node.value;
+  return null;
 }
 
-function shallowEqualArr(a: unknown[], b: unknown[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
-  }
-  return true;
-}
-
-function countDifferences(a: unknown[], b: unknown[]): number {
-  let n = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) n++;
-  }
-  return n;
-}
-
-async function writeAgentYaml(
-  filePath: string,
-  config: AgentConfig
-): Promise<void> {
-  // Re-parse the file so we preserve the user's overall field order; only
-  // the array entries we rewrote actually change.
-  const original = parseYaml(await fs.readFile(filePath, 'utf-8')) as Record<
-    string,
-    unknown
-  > | null;
-  const merged: Record<string, unknown> = { ...(original ?? {}) };
-  if (config.multiagent !== undefined) merged.multiagent = config.multiagent;
-  if (config.skills !== undefined) merged.skills = config.skills;
-  await fs.writeFile(filePath, stringifyYaml(merged), 'utf-8');
+/**
+ * Rewrite a `<oldKey>: <oldValue>` Pair in a YAMLMap to `<newKey>: <newValue>`
+ * by mutating the existing key / value Scalar nodes in place. Mutating in
+ * place — rather than constructing a fresh Pair — preserves the Pair's
+ * position in the map and any comments attached to the original Pair or its
+ * surrounding Scalars (line-leading `commentBefore`, end-of-line `comment`).
+ */
+function replaceKey(
+  map: YAMLMap,
+  oldKey: string,
+  newKey: string,
+  newValue: string
+): void {
+  const pair = map.items.find(p => {
+    const k = isScalar(p.key) ? p.key.value : p.key;
+    return k === oldKey;
+  });
+  if (!pair) return;
+  if (isScalar(pair.key)) pair.key.value = newKey;
+  if (isScalar(pair.value)) pair.value.value = newValue;
 }
