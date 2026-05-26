@@ -43,7 +43,7 @@
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@10.33.4",
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",
