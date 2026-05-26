@@ -29,7 +29,7 @@
     "url": "git+https://github.com/joe-re/cmaform.git"
   },
   "bin": {
-    "cmaform": "./dist/cli.js"
+    "cmaform": "dist/cli.js"
   },
   "files": [
     "dist",
