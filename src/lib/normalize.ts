@@ -53,7 +53,7 @@ function normalizeTools(tools: unknown): unknown {
   const normalized = normalizeArrayField(tools);
   if (!Array.isArray(normalized)) return normalized;
 
-  return normalized.map(tool => {
+  return normalized.map((tool) => {
     if (!isPlainObject(tool)) return tool;
     const defaultConfig = tool.default_config;
     const configs = tool.configs;
@@ -66,7 +66,7 @@ function normalizeTools(tools: unknown): unknown {
       return { ...tool, configs: normalizedConfigs };
     }
 
-    const filledConfigs = configs.map(cfg => {
+    const filledConfigs = configs.map((cfg) => {
       if (!isPlainObject(cfg)) return cfg;
       const out: Record<string, unknown> = { ...cfg };
       for (const [k, v] of Object.entries(defaultConfig)) {
@@ -86,10 +86,7 @@ function normalizeTools(tools: unknown): unknown {
  * Pair multiagent.agents[] entries by id and fill local-omitted `version`
  * with the remote-side value (= "latest" resolution).
  */
-function normalizeMultiagent(
-  local: unknown,
-  remote: unknown
-): [unknown, unknown] {
+function normalizeMultiagent(local: unknown, remote: unknown): [unknown, unknown] {
   if (!isPlainObject(local) || !isPlainObject(remote)) {
     return [local, remote];
   }
@@ -104,7 +101,7 @@ function normalizeMultiagent(
     }
   }
 
-  const filledLocalAgents = local.agents.map(entry => {
+  const filledLocalAgents = local.agents.map((entry) => {
     if (!isPlainObject(entry)) return entry;
     if (typeof entry.id !== 'string') return entry;
     if (entry.version !== undefined) return entry;
@@ -113,10 +110,7 @@ function normalizeMultiagent(
     return { ...entry, version: rEntry.version };
   });
 
-  return [
-    { ...local, agents: filledLocalAgents },
-    remote,
-  ];
+  return [{ ...local, agents: filledLocalAgents }, remote];
 }
 
 /**
@@ -124,10 +118,7 @@ function normalizeMultiagent(
  * with the remote-side value (= "latest" resolution). Also normalizes
  * empty array vs undefined.
  */
-function normalizeSkills(
-  local: unknown,
-  remote: unknown
-): [unknown, unknown] {
+function normalizeSkills(local: unknown, remote: unknown): [unknown, unknown] {
   if (!Array.isArray(local) || !Array.isArray(remote)) {
     return [normalizeArrayField(local), normalizeArrayField(remote)];
   }
@@ -139,7 +130,7 @@ function normalizeSkills(
     }
   }
 
-  const filledLocal = local.map(entry => {
+  const filledLocal = local.map((entry) => {
     if (!isPlainObject(entry)) return entry;
     if (typeof entry.skill_id !== 'string') return entry;
     if (entry.version !== undefined) return entry;
@@ -158,7 +149,7 @@ function normalizeSkills(
 export function normalizeFieldPair(
   field: string,
   local: unknown,
-  remote: unknown
+  remote: unknown,
 ): [unknown, unknown] {
   switch (field) {
     case 'mcp_servers':

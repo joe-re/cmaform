@@ -51,9 +51,5 @@ export async function saveState(state: State): Promise<void> {
   for (const key of Object.keys(state.vaults).sort()) {
     sorted.vaults[key] = state.vaults[key];
   }
-  await fs.writeFile(
-    STATE_PATH,
-    JSON.stringify(sorted, null, 2) + '\n',
-    'utf-8'
-  );
+  await fs.writeFile(STATE_PATH, JSON.stringify(sorted, null, 2) + '\n', 'utf-8');
 }

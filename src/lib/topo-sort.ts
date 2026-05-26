@@ -47,8 +47,8 @@ export function topoSortActions(actions: Action[]): Action[] {
     let deps: string[] = [];
     if (action.type === 'create' || action.type === 'update') {
       deps = [
-        ...action.forwardAgentDeps.map(n => `agent:${n}`),
-        ...action.forwardSkillDeps.map(n => `skill:${n}`),
+        ...action.forwardAgentDeps.map((n) => `agent:${n}`),
+        ...action.forwardSkillDeps.map((n) => `skill:${n}`),
       ];
     }
     return { index, action, deps, id };
@@ -61,7 +61,7 @@ export function topoSortActions(actions: Action[]): Action[] {
   // set. Dependencies pointing outside the set are already resolved (via
   // state or remote) at this stage and don't need ordering.
   for (const n of nodes) {
-    n.deps = n.deps.filter(d => byId.has(d));
+    n.deps = n.deps.filter((d) => byId.has(d));
   }
 
   // Kahn's algorithm. Outgoing edge: `dep -> dependent`. Initial nodes are
@@ -79,7 +79,7 @@ export function topoSortActions(actions: Action[]): Action[] {
   }
 
   const ready: Node[] = nodes
-    .filter(n => (incoming.get(n.id)?.size ?? 0) === 0)
+    .filter((n) => (incoming.get(n.id)?.size ?? 0) === 0)
     .sort((a, b) => a.index - b.index);
 
   const sorted: Action[] = [];
@@ -104,12 +104,12 @@ export function topoSortActions(actions: Action[]): Action[] {
 
   if (sorted.length !== nodes.length) {
     const remaining = nodes
-      .filter(n => !visited.has(n.id))
-      .map(n => n.id)
+      .filter((n) => !visited.has(n.id))
+      .map((n) => n.id)
       .join(', ');
     throw new Error(
       `dependency cycle detected among: ${remaining}. ` +
-        `Sub-agent / skill references must form a DAG.`
+        `Sub-agent / skill references must form a DAG.`,
     );
   }
 

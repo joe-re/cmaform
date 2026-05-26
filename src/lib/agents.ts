@@ -6,17 +6,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { AGENTS_DIR } from './config.js';
 import { normalizeFieldPair } from './normalize.js';
-import {
-  rewriteAgentRefsToNameForm,
-  rewriteSkillRefsToNameForm,
-} from './resolve.js';
+import { rewriteAgentRefsToNameForm, rewriteSkillRefsToNameForm } from './resolve.js';
 import { anthropic, isSDKNotFound } from './sdk.js';
-import type {
-  AgentConfig,
-  FieldDiff,
-  RemoteAgent,
-  State,
-} from './types.js';
+import type { AgentConfig, FieldDiff, RemoteAgent, State } from './types.js';
 
 const COMPARE_FIELDS: (keyof AgentConfig)[] = [
   'name',
@@ -48,10 +40,8 @@ export async function listAgentFiles(): Promise<string[]> {
   try {
     const entries = await fs.readdir(AGENTS_DIR, { withFileTypes: true });
     return entries
-      .filter(
-        e => e.isFile() && (e.name.endsWith('.yaml') || e.name.endsWith('.yml'))
-      )
-      .map(e => path.join(AGENTS_DIR, e.name))
+      .filter((e) => e.isFile() && (e.name.endsWith('.yaml') || e.name.endsWith('.yml')))
+      .map((e) => path.join(AGENTS_DIR, e.name))
       .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -87,7 +77,7 @@ export async function findFileByName(name: string): Promise<string | null> {
  */
 export async function writeAgentYamlFromRemote(
   agent: RemoteAgent,
-  state: State | null = null
+  state: State | null = null,
 ): Promise<string> {
   const multiagent =
     state && agent.multiagent
@@ -96,7 +86,7 @@ export async function writeAgentYamlFromRemote(
           agents:
             (rewriteAgentRefsToNameForm(
               agent.multiagent.agents,
-              state
+              state,
             ) as typeof agent.multiagent.agents) ?? agent.multiagent.agents,
         }
       : agent.multiagent;
@@ -134,9 +124,7 @@ export async function loadAllAgentConfigs(): Promise<
     const config = await readAgentYaml(f);
     const existing = map.get(config.name);
     if (existing) {
-      throw new Error(
-        `name "${config.name}" is duplicated in ${existing.filePath} and ${f}`
-      );
+      throw new Error(`name "${config.name}" is duplicated in ${existing.filePath} and ${f}`);
     }
     map.set(config.name, { config, filePath: f });
   }
@@ -163,12 +151,10 @@ export async function retrieveAgent(id: string): Promise<RemoteAgent | null> {
   }
 }
 
-export async function createAgent(
-  params: ReturnType<typeof toApplyParams>
-): Promise<RemoteAgent> {
+export async function createAgent(params: ReturnType<typeof toApplyParams>): Promise<RemoteAgent> {
   // The SDK types are strict but we pass arbitrary YAML-sourced shapes, so cast via unknown.
   const created = await anthropic.beta.agents.create(
-    params as unknown as Parameters<typeof anthropic.beta.agents.create>[0]
+    params as unknown as Parameters<typeof anthropic.beta.agents.create>[0],
   );
   return created as unknown as RemoteAgent;
 }
@@ -176,7 +162,7 @@ export async function createAgent(
 export async function updateAgent(
   id: string,
   version: number,
-  params: ReturnType<typeof toApplyParams>
+  params: ReturnType<typeof toApplyParams>,
 ): Promise<RemoteAgent> {
   const updated = await anthropic.beta.agents.update(id, {
     version,
@@ -195,10 +181,7 @@ function nullToUndefined<T>(v: T): T | undefined {
   return v === null ? undefined : (v as T | undefined);
 }
 
-export function fieldDiffs(
-  local: AgentConfig,
-  remote: RemoteAgent
-): FieldDiff[] {
+export function fieldDiffs(local: AgentConfig, remote: RemoteAgent): FieldDiff[] {
   const diffs: FieldDiff[] = [];
   for (const field of COMPARE_FIELDS) {
     const lvRaw = nullToUndefined(local[field] as unknown);
@@ -228,17 +211,12 @@ export function toApplyParams(config: AgentConfig) {
   };
 }
 
-export async function findAgentByName(
-  name: string
-): Promise<RemoteAgent | null> {
+export async function findAgentByName(name: string): Promise<RemoteAgent | null> {
   const agents = await listAgents();
-  return agents.find(a => a.name === name && !a.archived_at) ?? null;
+  return agents.find((a) => a.name === name && !a.archived_at) ?? null;
 }
 
-export async function resolveRemote(
-  name: string,
-  state: State
-): Promise<RemoteAgent | null> {
+export async function resolveRemote(name: string, state: State): Promise<RemoteAgent | null> {
   const tracked = state.agents[name];
   if (tracked) {
     const byId = await retrieveAgent(tracked.id);

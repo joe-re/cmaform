@@ -62,15 +62,15 @@ cmaform apply                                 # confirm → push to Anthropic
 
 ### Commands
 
-| Command | What it does |
-| --- | --- |
-| `cmaform pull <id> [--by-id]` | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting `multiagent.agents[]` / `skills[]` to the name form |
-| `cmaform plan [--verbose\|-v] [target...]` | Diff local YAML / state / remote and print a Terraform-style plan |
-| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state |
-| `cmaform sync [--by-id]` | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form |
-| `cmaform init` | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`) |
-| `cmaform list` | Show local files / state / remote side-by-side |
-| `cmaform fmt` | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup |
+| Command                                                 | What it does                                                                                                                                                                                                                                          |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmaform pull <id> [--by-id]`                           | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting `multiagent.agents[]` / `skills[]` to the name form |
+| `cmaform plan [--verbose\|-v] [target...]`              | Diff local YAML / state / remote and print a Terraform-style plan                                                                                                                                                                                     |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state                                                                                                                                                                                                 |
+| `cmaform sync [--by-id]`                                | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form                                                                                 |
+| `cmaform init`                                          | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`)                                                                                                                                                   |
+| `cmaform list`                                          | Show local files / state / remote side-by-side                                                                                                                                                                                                        |
+| `cmaform fmt`                                           | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup                                                                                                            |
 
 ### Filtering plan / apply
 
@@ -86,13 +86,13 @@ cmaform apply skills release-prep        # all skills + one agent
 
 A `<target>` is either a **kind alias** (matches every resource of that type) or the **individual name** of one specific resource. Use the table below for kind aliases; anything else is treated as a resource name.
 
-| Resource | Kind aliases | Individual name format | Example |
-| --- | --- | --- | --- |
-| Agent | `agent` / `agents` | `name:` field in the YAML | `release-prep` (`agents/release-prep.yaml`) |
-| Skill | `skill` / `skills` | directory name under `skills/` | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
-| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | directory name under `memory_stores/` | `team-notes` (`memory_stores/team-notes/`) |
-| Environment | `environment` / `environments` / `env` / `envs` | directory name under `environments/` | `python-dev` (`environments/python-dev/`) |
-| Vault | `vault` / `vaults` | directory name under `vaults/` | `my-bot` (`vaults/my-bot/`) |
+| Resource     | Kind aliases                                                | Individual name format                | Example                                                 |
+| ------------ | ----------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------- |
+| Agent        | `agent` / `agents`                                          | `name:` field in the YAML             | `release-prep` (`agents/release-prep.yaml`)             |
+| Skill        | `skill` / `skills`                                          | directory name under `skills/`        | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
+| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | directory name under `memory_stores/` | `team-notes` (`memory_stores/team-notes/`)              |
+| Environment  | `environment` / `environments` / `env` / `envs`             | directory name under `environments/`  | `python-dev` (`environments/python-dev/`)               |
+| Vault        | `vault` / `vaults`                                          | directory name under `vaults/`        | `my-bot` (`vaults/my-bot/`)                             |
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
@@ -117,10 +117,10 @@ cmaform manages five resource types — **agents**, **skills**, **memory stores*
 ### Agent (`agents/<name>.yaml`)
 
 ```yaml
-name: my-agent              # unique within the workspace — this is the identity key
+name: my-agent # unique within the workspace — this is the identity key
 model:
   id: claude-sonnet-4-6
-  speed: standard           # standard | fast
+  speed: standard # standard | fast
 description: short description
 system: |-
   ... full system prompt ...
@@ -167,6 +167,7 @@ description: What this skill does, and when Claude should use it.
 ---
 
 # My Skill
+
 ...
 ```
 
@@ -181,10 +182,10 @@ cmaform computes a SHA-256 hash of the entire directory and compares it against 
 # agents/foo.yaml
 skills:
   - type: anthropic
-    skill_id: xlsx                   # well-known Anthropic skills stay id-based
+    skill_id: xlsx # well-known Anthropic skills stay id-based
   - type: custom
-    name: slack-mention-lookup       # = local directory name under skills/
-    version: latest                  # optional
+    name: slack-mention-lookup # = local directory name under skills/
+    version: latest # optional
 ```
 
 The raw-ID form (`skill_id: skill_01XXXXXX`) is also accepted for `type: custom` — `name` and `skill_id` are interchangeable. See [Name-based references](#-name-based-references) below for resolution semantics.
@@ -201,13 +202,13 @@ multiagent:
   type: coordinator
   agents:
     - type: agent
-      name: spec-qa          # = the `name` field of agents/spec-qa.yaml
+      name: spec-qa # = the `name` field of agents/spec-qa.yaml
     - type: agent
       name: release-prep
-      version: latest        # optional
+      version: latest # optional
 skills:
   - type: custom
-    name: slack-mention-lookup   # = the directory name under skills/
+    name: slack-mention-lookup # = the directory name under skills/
 ```
 
 Resolution order for each name:
@@ -274,14 +275,14 @@ metadata: {}
 
 ### Vault (`vaults/<localName>/`)
 
-> **Status:** ⚠️ *Partial support — vault design is still evolving in cmaform.*
+> **Status:** ⚠️ _Partial support — vault design is still evolving in cmaform._
 >
-> | Operation | Supported by cmaform | Notes |
-> | --- | --- | --- |
-> | Create vault | ✅ | New local manifest → vault is created on the server. |
-> | Archive vault | ✅ | Removing a local manifest archives the vault. Cascades server-side to attached credentials. |
-> | Update vault | ❌ | Edits to `display_name` / `metadata` after creation are **silently ignored**. Archive and recreate to rename / relabel. |
-> | Manage credentials | ❌ | Credentials are not yet managed by cmaform — the secret-resolution design is still being settled. Use the [Anthropic Vault Credentials API](https://platform.claude.com/docs/en/managed-agents/credentials) directly to attach / rotate credentials. |
+> | Operation          | Supported by cmaform | Notes                                                                                                                                                                                                                                                |
+> | ------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Create vault       | ✅                   | New local manifest → vault is created on the server.                                                                                                                                                                                                 |
+> | Archive vault      | ✅                   | Removing a local manifest archives the vault. Cascades server-side to attached credentials.                                                                                                                                                          |
+> | Update vault       | ❌                   | Edits to `display_name` / `metadata` after creation are **silently ignored**. Archive and recreate to rename / relabel.                                                                                                                              |
+> | Manage credentials | ❌                   | Credentials are not yet managed by cmaform — the secret-resolution design is still being settled. Use the [Anthropic Vault Credentials API](https://platform.claude.com/docs/en/managed-agents/credentials) directly to attach / rotate credentials. |
 >
 > The vault scope will be expanded (update, credential management with secret backends) in a future release.
 
@@ -353,10 +354,10 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 
 ## 🔐 Environment Variables
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | ✅ | Anthropic API authentication |
-| `CMAFORM_DIR` | | Config root directory (default: `cwd`) |
+| Variable            | Required | Purpose                                |
+| ------------------- | -------- | -------------------------------------- |
+| `ANTHROPIC_API_KEY` | ✅       | Anthropic API authentication           |
+| `CMAFORM_DIR`       |          | Config root directory (default: `cwd`) |
 
 ## ⚠️ Caveats
 

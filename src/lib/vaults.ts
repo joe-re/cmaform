@@ -28,8 +28,8 @@ async function listVaultDirs(): Promise<string[]> {
   try {
     const entries = await fs.readdir(VAULTS_DIR, { withFileTypes: true });
     return entries
-      .filter(e => e.isDirectory())
-      .map(e => path.join(VAULTS_DIR, e.name))
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(VAULTS_DIR, e.name))
       .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -44,9 +44,7 @@ async function readVaultManifest(dirPath: string): Promise<VaultConfig> {
     content = await fs.readFile(manifestPath, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(
-        `${manifestPath}: ${VAULT_MANIFEST_FILENAME} not found`
-      );
+      throw new Error(`${manifestPath}: ${VAULT_MANIFEST_FILENAME} not found`);
     }
     throw err;
   }
@@ -55,9 +53,7 @@ async function readVaultManifest(dirPath: string): Promise<VaultConfig> {
     throw new Error(`${manifestPath}: invalid YAML`);
   }
   if (!parsed.display_name) {
-    throw new Error(
-      `${manifestPath}: missing required field 'display_name'`
-    );
+    throw new Error(`${manifestPath}: missing required field 'display_name'`);
   }
   return parsed;
 }
@@ -75,7 +71,7 @@ export async function loadAllVaultConfigs(): Promise<Map<string, LocalVault>> {
 
 export async function writeVaultManifestFromRemote(
   remote: RemoteVault,
-  localName: string
+  localName: string,
 ): Promise<string> {
   const out: VaultConfig = {
     display_name: remote.display_name,
@@ -90,9 +86,7 @@ export async function writeVaultManifestFromRemote(
 
 // ---------------- SDK ----------------
 
-export async function listVaults(
-  includeArchived = false
-): Promise<RemoteVault[]> {
+export async function listVaults(includeArchived = false): Promise<RemoteVault[]> {
   const results: RemoteVault[] = [];
   for await (const v of anthropic.beta.vaults.list({
     include_archived: includeArchived,
@@ -112,9 +106,7 @@ export async function retrieveVault(id: string): Promise<RemoteVault | null> {
   }
 }
 
-export async function createVault(
-  config: VaultConfig
-): Promise<RemoteVault> {
+export async function createVault(config: VaultConfig): Promise<RemoteVault> {
   const created = await anthropic.beta.vaults.create({
     display_name: config.display_name,
     metadata: config.metadata,

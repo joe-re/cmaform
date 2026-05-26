@@ -10,7 +10,7 @@ import type { FieldDiff } from './types.js';
 
 function formatWarningLines(
   warnings: PlanWarning[] | undefined,
-  targetKind: 'skill' | 'agent'
+  targetKind: 'skill' | 'agent',
 ): string {
   if (!warnings || warnings.length === 0) return '';
   const hintLines =
@@ -23,23 +23,22 @@ function formatWarningLines(
           `      → continuing the archive will break delegation from the listed coordinator(s).`,
           `      → edit the referrer's YAML (remove the agent from multiagent.agents[]) before re-running plan.`,
         ];
-  const hint = hintLines.map(l => colorize('yellow', l) + '\n').join('');
+  const hint = hintLines.map((l) => colorize('yellow', l) + '\n').join('');
   const refs = warnings
     .map(
-      w =>
+      (w) =>
         '       ' +
         colorizeMany(['bold', 'yellow'], 'WARN:') +
         ' ' +
         colorize(
           'yellow',
-          `still referenced by agent ${JSON.stringify(w.referrer)} (${w.fieldPath})`
+          `still referenced by agent ${JSON.stringify(w.referrer)} (${w.fieldPath})`,
         ) +
-        '\n'
+        '\n',
     )
     .join('');
   return refs + hint;
 }
-
 
 /**
  * Recursively sort object keys so YAML serialization is deterministic. Array
@@ -88,14 +87,13 @@ function annotateIds(yamlText: string): string {
       const name = map.get(id);
       if (!name) return match;
       return `${match}  ${colorize('dim', `# = ${name}`)}`;
-    }
+    },
   );
 }
 
 function serializeForDiff(v: unknown): string[] {
   if (v === undefined || v === null) return ['(unset)'];
-  if (typeof v === 'string')
-    return v.length === 0 ? ['(empty)'] : v.split('\n');
+  if (typeof v === 'string') return v.length === 0 ? ['(empty)'] : v.split('\n');
   if (typeof v !== 'object') return [String(v)];
   try {
     const yamlText = stringifyYaml(canonicalize(v), { lineWidth: 0 }).trimEnd();
@@ -112,14 +110,11 @@ function lcsDiff(a: string[], b: string[]): DiffOp[] {
   const m = a.length;
   const n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0)
+    Array.from({ length: n + 1 }, () => 0),
   );
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] =
-        a[i] === b[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
   const out: DiffOp[] = [];
@@ -199,7 +194,7 @@ export function formatCreateField(
   field: string,
   value: unknown,
   indent: string,
-  opts: PrintPlanOptions = {}
+  opts: PrintPlanOptions = {},
 ): string {
   const prettified = prettifySentinelsForDisplay(value);
   const lines = serializeForDiff(prettified);
@@ -226,7 +221,7 @@ export function formatCreateField(
   }
   if (hiddenCount > 0) {
     out.push(
-      `${indent}    ${colorize('dim', `... (${hiddenCount} lines hidden; pass --verbose to show)`)}`
+      `${indent}    ${colorize('dim', `... (${hiddenCount} lines hidden; pass --verbose to show)`)}`,
     );
   }
   return out.join('\n') + '\n';
@@ -256,7 +251,7 @@ export function formatFieldDiff(diff: FieldDiff, indent: string): string {
   for (const op of ops) {
     if (op.type === '...') {
       lines.push(
-        `${indent}    ${colorize('dim', `... (${op.count} unchanged line${op.count === 1 ? '' : 's'})`)}`
+        `${indent}    ${colorize('dim', `... (${op.count} unchanged line${op.count === 1 ? '' : 's'})`)}`,
       );
     } else if (op.type === '-') {
       lines.push(`${indent}  ${colorize('red', `- ${op.text}`)}`);
@@ -285,10 +280,7 @@ const AGENT_CREATE_FIELD_ORDER = [
   'metadata',
 ] as const;
 
-export function printPlan(
-  actions: Action[],
-  opts: PrintPlanOptions = {}
-): void {
+export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void {
   setDisplayIdMap({
     agents: opts.agentIdToName ?? new Map(),
     skills: opts.skillIdToName ?? new Map(),
@@ -317,12 +309,9 @@ export function printPlan(
     switch (a.type) {
       case 'create': {
         process.stdout.write(
-          colorize(
-            'green',
-            `  [+] create agent  ${JSON.stringify(a.name)}`
-          ) +
+          colorize('green', `  [+] create agent  ${JSON.stringify(a.name)}`) +
             '\n' +
-            `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
+            `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`,
         );
         const cfg = a.config as unknown as Record<string, unknown>;
         for (const field of AGENT_CREATE_FIELD_ORDER) {
@@ -337,10 +326,10 @@ export function printPlan(
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update agent  ${JSON.stringify(a.name)} (id=${a.id}, version=${a.currentVersion})`
+            `  [~] update agent  ${JSON.stringify(a.name)} (id=${a.id}, version=${a.currentVersion})`,
           ) +
             '\n' +
-            `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`
+            `       file: ${path.relative(CMAFORM_DIR, a.filePath)}\n`,
         );
         for (const d of a.diffs) {
           process.stdout.write(formatFieldDiff(d, '       '));
@@ -349,13 +338,10 @@ export function printPlan(
         break;
       case 'delete':
         process.stdout.write(
-          colorize(
-            'red',
-            `  [-] archive agent ${JSON.stringify(a.name)} (id=${a.id})`
-          ) +
+          colorize('red', `  [-] archive agent ${JSON.stringify(a.name)} (id=${a.id})`) +
             '\n' +
             `       ${colorize('dim', 'reason: present in state but no local YAML')}\n` +
-            formatWarningLines(a.warnings, 'agent')
+            formatWarningLines(a.warnings, 'agent'),
         );
         deletes++;
         break;
@@ -364,50 +350,31 @@ export function printPlan(
         break;
       case 'skill_create':
         process.stdout.write(
-          colorize(
-            'green',
-            `  [+] create skill  ${JSON.stringify(a.localName)}`
-          ) +
+          colorize('green', `  [+] create skill  ${JSON.stringify(a.localName)}`) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
-            `       hash: ${a.skill.hash.slice(0, 12)}...\n`
+            `       hash: ${a.skill.hash.slice(0, 12)}...\n`,
         );
         process.stdout.write(
           formatCreateField('name', a.skill.skillName, '       ', opts) +
-            formatCreateField(
-              'description',
-              a.skill.description,
-              '       ',
-              opts
-            ) +
-            formatCreateField(
-              'display_title',
-              a.skill.displayTitle,
-              '       ',
-              opts
-            ) +
-            formatCreateField('files', a.skill.files, '       ', opts)
+            formatCreateField('description', a.skill.description, '       ', opts) +
+            formatCreateField('display_title', a.skill.displayTitle, '       ', opts) +
+            formatCreateField('files', a.skill.files, '       ', opts),
         );
         skillCreates++;
         break;
       case 'skill_update':
         process.stdout.write(
-          colorize(
-            'yellow',
-            `  [~] update skill  ${JSON.stringify(a.localName)} (id=${a.id})`
-          ) +
+          colorize('yellow', `  [~] update skill  ${JSON.stringify(a.localName)} (id=${a.id})`) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
-            `       hash: ${a.currentHash.slice(0, 12)}... -> ${a.skill.hash.slice(0, 12)}...\n`
+            `       hash: ${a.currentHash.slice(0, 12)}... -> ${a.skill.hash.slice(0, 12)}...\n`,
         );
         skillUpdates++;
         break;
       case 'skill_delete':
         process.stdout.write(
-          colorize(
-            'red',
-            `  [-] delete skill  ${JSON.stringify(a.localName)} (id=${a.id})`
-          ) +
+          colorize('red', `  [-] delete skill  ${JSON.stringify(a.localName)} (id=${a.id})`) +
             '\n' +
             `       ${colorize('dim', 'reason: present in state but no local skill directory')}\n` +
             '       ' +
@@ -415,10 +382,10 @@ export function printPlan(
             ' ' +
             colorize(
               'yellow',
-              'skills cannot be archived; all versions will be permanently deleted'
+              'skills cannot be archived; all versions will be permanently deleted',
             ) +
             '\n' +
-            formatWarningLines(a.warnings, 'skill')
+            formatWarningLines(a.warnings, 'skill'),
         );
         skillDeletes++;
         break;
@@ -427,12 +394,9 @@ export function printPlan(
         break;
       case 'memstore_create': {
         process.stdout.write(
-          colorize(
-            'green',
-            `  [+] create memory_store ${JSON.stringify(a.localName)}`
-          ) +
+          colorize('green', `  [+] create memory_store ${JSON.stringify(a.localName)}`) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
         );
         const mcfg = a.config as unknown as Record<string, unknown>;
         for (const field of ['name', 'description', 'metadata']) {
@@ -447,10 +411,10 @@ export function printPlan(
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})`
+            `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})`,
           ) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
         );
         for (const d of a.diffs) {
           process.stdout.write(formatFieldDiff(d, '       '));
@@ -461,7 +425,7 @@ export function printPlan(
         process.stdout.write(
           colorize(
             'red',
-            `  [-] archive memory_store ${JSON.stringify(a.localName)} (id=${a.id})`
+            `  [-] archive memory_store ${JSON.stringify(a.localName)} (id=${a.id})`,
           ) +
             '\n' +
             `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
@@ -470,9 +434,9 @@ export function printPlan(
             ' ' +
             colorize(
               'yellow',
-              "archive is one-way (cannot be undone); the store's memory data is preserved"
+              "archive is one-way (cannot be undone); the store's memory data is preserved",
             ) +
-            '\n'
+            '\n',
         );
         memArchives++;
         break;
@@ -481,12 +445,9 @@ export function printPlan(
         break;
       case 'env_create': {
         process.stdout.write(
-          colorize(
-            'green',
-            `  [+] create environment ${JSON.stringify(a.localName)}`
-          ) +
+          colorize('green', `  [+] create environment ${JSON.stringify(a.localName)}`) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
         );
         const ecfg = a.config as unknown as Record<string, unknown>;
         for (const field of ['name', 'description', 'metadata', 'config']) {
@@ -501,10 +462,10 @@ export function printPlan(
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update environment ${JSON.stringify(a.localName)} (id=${a.id})`
+            `  [~] update environment ${JSON.stringify(a.localName)} (id=${a.id})`,
           ) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
         );
         for (const d of a.diffs) {
           process.stdout.write(formatFieldDiff(d, '       '));
@@ -513,10 +474,7 @@ export function printPlan(
         break;
       case 'env_archive':
         process.stdout.write(
-          colorize(
-            'red',
-            `  [-] archive environment ${JSON.stringify(a.localName)} (id=${a.id})`
-          ) +
+          colorize('red', `  [-] archive environment ${JSON.stringify(a.localName)} (id=${a.id})`) +
             '\n' +
             `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
             '       ' +
@@ -524,9 +482,9 @@ export function printPlan(
             ' ' +
             colorize(
               'yellow',
-              'archive is one-way; existing sessions keep working but new sessions cannot use it'
+              'archive is one-way; existing sessions keep working but new sessions cannot use it',
             ) +
-            '\n'
+            '\n',
         );
         envArchives++;
         break;
@@ -535,12 +493,9 @@ export function printPlan(
         break;
       case 'vault_create': {
         process.stdout.write(
-          colorize(
-            'green',
-            `  [+] create vault  ${JSON.stringify(a.localName)}`
-          ) +
+          colorize('green', `  [+] create vault  ${JSON.stringify(a.localName)}`) +
             '\n' +
-            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
         );
         const vcfg = a.config as unknown as Record<string, unknown>;
         for (const field of ['display_name', 'metadata']) {
@@ -553,10 +508,7 @@ export function printPlan(
       }
       case 'vault_archive':
         process.stdout.write(
-          colorize(
-            'red',
-            `  [-] archive vault ${JSON.stringify(a.localName)} (id=${a.id})`
-          ) +
+          colorize('red', `  [-] archive vault ${JSON.stringify(a.localName)} (id=${a.id})`) +
             '\n' +
             `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
             '       ' +
@@ -564,9 +516,9 @@ export function printPlan(
             ' ' +
             colorize(
               'yellow',
-              'archive is one-way; new sessions cannot attach this vault, existing sessions keep working'
+              'archive is one-way; new sessions cannot attach this vault, existing sessions keep working',
             ) +
-            '\n'
+            '\n',
         );
         vaultArchives++;
         break;
@@ -581,6 +533,6 @@ export function printPlan(
       `Plan (skills):         ${skillCreates} to add, ${skillUpdates} to change, ${skillDeletes} to delete, ${skillNoops} unchanged.\n` +
       `Plan (memory_stores):  ${memCreates} to add, ${memUpdates} to change, ${memArchives} to archive, ${memNoops} unchanged.\n` +
       `Plan (environments):   ${envCreates} to add, ${envUpdates} to change, ${envArchives} to archive, ${envNoops} unchanged.\n` +
-      `Plan (vaults):         ${vaultCreates} to add, ${vaultArchives} to archive, ${vaultNoops} unchanged.\n`
+      `Plan (vaults):         ${vaultCreates} to add, ${vaultArchives} to archive, ${vaultNoops} unchanged.\n`,
   );
 }

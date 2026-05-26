@@ -18,7 +18,7 @@ import type { ResolvedConfig } from './resolve.js';
  */
 export function attachDanglingReferenceWarnings(
   actions: Action[],
-  resolutions: Map<string, ResolvedConfig>
+  resolutions: Map<string, ResolvedConfig>,
 ): void {
   const skillIdToLocalName = new Map<string, string>();
   const agentIdToName = new Map<string, string>();
@@ -77,11 +77,7 @@ export function attachDanglingReferenceWarnings(
   }
 }
 
-function addWarning(
-  map: Map<string, PlanWarning[]>,
-  key: string,
-  warning: PlanWarning
-): void {
+function addWarning(map: Map<string, PlanWarning[]>, key: string, warning: PlanWarning): void {
   const existing = map.get(key);
   if (existing) existing.push(warning);
   else map.set(key, [warning]);
@@ -89,9 +85,9 @@ function addWarning(
 
 export function hasDanglingWarnings(actions: Action[]): boolean {
   return actions.some(
-    a =>
+    (a) =>
       (a.type === 'delete' || a.type === 'skill_delete') &&
       a.warnings !== undefined &&
-      a.warnings.length > 0
+      a.warnings.length > 0,
   );
 }

@@ -42,18 +42,10 @@ describe('filterActionsByTargets', () => {
   const actions = [noop, skillNoop, memstoreCreate, envArchive, vaultNoop];
 
   it('filters by resource kind aliases', () => {
-    expect(filterActionsByTargets(actions, ['skills']).filtered).toEqual([
-      skillNoop,
-    ]);
-    expect(filterActionsByTargets(actions, ['memstore']).filtered).toEqual([
-      memstoreCreate,
-    ]);
-    expect(filterActionsByTargets(actions, ['env']).filtered).toEqual([
-      envArchive,
-    ]);
-    expect(filterActionsByTargets(actions, ['vaults']).filtered).toEqual([
-      vaultNoop,
-    ]);
+    expect(filterActionsByTargets(actions, ['skills']).filtered).toEqual([skillNoop]);
+    expect(filterActionsByTargets(actions, ['memstore']).filtered).toEqual([memstoreCreate]);
+    expect(filterActionsByTargets(actions, ['env']).filtered).toEqual([envArchive]);
+    expect(filterActionsByTargets(actions, ['vaults']).filtered).toEqual([vaultNoop]);
   });
 
   it('filters by local resource name and reports unmatched names', () => {

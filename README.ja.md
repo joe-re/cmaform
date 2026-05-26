@@ -62,15 +62,15 @@ cmaform apply                                 # 確認 → Anthropic に反映
 
 ### コマンド一覧
 
-| コマンド | 説明 |
-| --- | --- |
-| `cmaform pull <id> [--by-id]` | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
-| `cmaform plan [--verbose\|-v] [target...]` | local YAML / state / remote の差分を Terraform 風に表示 |
-| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存 |
-| `cmaform sync [--by-id]` | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
-| `cmaform init` | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当) |
-| `cmaform list` | local files / state / remote を並べて表示 |
-| `cmaform fmt` | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す |
+| コマンド                                                | 説明                                                                                                                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmaform pull <id> [--by-id]`                           | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
+| `cmaform plan [--verbose\|-v] [target...]`              | local YAML / state / remote の差分を Terraform 風に表示                                                                                                                                                    |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存                                                                                                                                                                     |
+| `cmaform sync [--by-id]`                                | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力                                          |
+| `cmaform init`                                          | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当)                                                                                                         |
+| `cmaform list`                                          | local files / state / remote を並べて表示                                                                                                                                                                  |
+| `cmaform fmt`                                           | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す                                                                                        |
 
 ### plan / apply の絞り込み
 
@@ -86,13 +86,13 @@ cmaform apply skills release-prep        # 全 skill + release-prep agent
 
 `<target>` は **種別の別名** (= その種類のリソース全体に一致) か、**個別リソースの名前** (= 1 つのリソースだけに一致) のどちらかとして解釈されます。下表の別名のいずれにも当たらない場合、target は個別リソース名として扱われます。
 
-| リソース | 種別の別名 | 個別リソース名のフォーマット | 例 |
-| --- | --- | --- | --- |
-| Agent | `agent` / `agents` | YAML の `name:` フィールド | `release-prep` (`agents/release-prep.yaml`) |
-| Skill | `skill` / `skills` | `skills/` 配下のディレクトリ名 | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
-| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | `memory_stores/` 配下のディレクトリ名 | `team-notes` (`memory_stores/team-notes/`) |
-| Environment | `environment` / `environments` / `env` / `envs` | `environments/` 配下のディレクトリ名 | `python-dev` (`environments/python-dev/`) |
-| Vault | `vault` / `vaults` | `vaults/` 配下のディレクトリ名 | `my-bot` (`vaults/my-bot/`) |
+| リソース     | 種別の別名                                                  | 個別リソース名のフォーマット          | 例                                                      |
+| ------------ | ----------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------- |
+| Agent        | `agent` / `agents`                                          | YAML の `name:` フィールド            | `release-prep` (`agents/release-prep.yaml`)             |
+| Skill        | `skill` / `skills`                                          | `skills/` 配下のディレクトリ名        | `slack-mention-lookup` (`skills/slack-mention-lookup/`) |
+| Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | `memory_stores/` 配下のディレクトリ名 | `team-notes` (`memory_stores/team-notes/`)              |
+| Environment  | `environment` / `environments` / `env` / `envs`             | `environments/` 配下のディレクトリ名  | `python-dev` (`environments/python-dev/`)               |
+| Vault        | `vault` / `vaults`                                          | `vaults/` 配下のディレクトリ名        | `my-bot` (`vaults/my-bot/`)                             |
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
@@ -117,10 +117,10 @@ cmaform は 5 種類のリソース — **agents** / **skills** / **memory store
 ### Agent (`agents/<name>.yaml`)
 
 ```yaml
-name: my-agent              # workspace 内で一意。これが識別キー
+name: my-agent # workspace 内で一意。これが識別キー
 model:
   id: claude-sonnet-4-6
-  speed: standard           # standard | fast
+  speed: standard # standard | fast
 description: 短い説明
 system: |-
   ... system prompt 全文 ...
@@ -167,6 +167,7 @@ description: 何をする skill で、いつ Claude が使うべきか
 ---
 
 # My Skill
+
 ...
 ```
 
@@ -181,10 +182,10 @@ cmaform はディレクトリ配下の全ファイルから SHA-256 ハッシュ
 # agents/foo.yaml
 skills:
   - type: anthropic
-    skill_id: xlsx                   # Anthropic 提供 skill は ID 形式のまま
+    skill_id: xlsx # Anthropic 提供 skill は ID 形式のまま
   - type: custom
-    name: slack-mention-lookup       # = skills/ 配下のディレクトリ名
-    version: latest                  # 省略可
+    name: slack-mention-lookup # = skills/ 配下のディレクトリ名
+    version: latest # 省略可
 ```
 
 raw ID 形式 (`skill_id: skill_01XXXXXX`、 `type: custom`) も受け付けます。`name` と `skill_id` はどちらでも書けます。解決ルールは下の [Name-based references (論理名参照)](#-name-based-references-論理名参照) を参照してください。
@@ -201,13 +202,13 @@ multiagent:
   type: coordinator
   agents:
     - type: agent
-      name: spec-qa          # = agents/spec-qa.yaml の `name` フィールド
+      name: spec-qa # = agents/spec-qa.yaml の `name` フィールド
     - type: agent
       name: release-prep
-      version: latest        # 省略可
+      version: latest # 省略可
 skills:
   - type: custom
-    name: slack-mention-lookup   # = skills/ 配下のディレクトリ名
+    name: slack-mention-lookup # = skills/ 配下のディレクトリ名
 ```
 
 論理名の解決順序:
@@ -273,14 +274,14 @@ metadata: {}
 
 ### Vault (`vaults/<localName>/`)
 
-> **対応状況:** ⚠️ *部分対応 — vault の設計は cmaform 側でまだ検討中です。*
+> **対応状況:** ⚠️ _部分対応 — vault の設計は cmaform 側でまだ検討中です。_
 >
-> | 操作 | cmaform 対応 | 備考 |
-> | --- | --- | --- |
-> | Vault の作成 | ✅ | 新規 local manifest があれば作成される |
-> | Vault の archive | ✅ | local manifest を削除すると archive。API 側で credentials も cascade archive |
-> | Vault の更新 | ❌ | 初回作成後の `display_name` / `metadata` 変更は **plan に出ません**。リネームしたい場合は archive → 作り直し |
-> | Credential の管理 | ❌ | credential は cmaform 管理対象外です (secret 解決の設計待ち)。 attach / rotate は [Anthropic Vault Credentials API](https://platform.claude.com/docs/en/managed-agents/credentials) を直接使ってください |
+> | 操作              | cmaform 対応 | 備考                                                                                                                                                                                                     |
+> | ----------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Vault の作成      | ✅           | 新規 local manifest があれば作成される                                                                                                                                                                   |
+> | Vault の archive  | ✅           | local manifest を削除すると archive。API 側で credentials も cascade archive                                                                                                                             |
+> | Vault の更新      | ❌           | 初回作成後の `display_name` / `metadata` 変更は **plan に出ません**。リネームしたい場合は archive → 作り直し                                                                                             |
+> | Credential の管理 | ❌           | credential は cmaform 管理対象外です (secret 解決の設計待ち)。 attach / rotate は [Anthropic Vault Credentials API](https://platform.claude.com/docs/en/managed-agents/credentials) を直接使ってください |
 >
 > 将来リリースで vault update と secret backend 込みの credential 管理を順次サポート予定です。
 
@@ -352,10 +353,10 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 
 ## 🔐 環境変数
 
-| 変数 | 必須 | 用途 |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | ✅ | Anthropic API への認証 |
-| `CMAFORM_DIR` | | 構成ルートディレクトリ (default: `cwd`) |
+| 変数                | 必須 | 用途                                    |
+| ------------------- | ---- | --------------------------------------- |
+| `ANTHROPIC_API_KEY` | ✅   | Anthropic API への認証                  |
+| `CMAFORM_DIR`       |      | 構成ルートディレクトリ (default: `cwd`) |
 
 ## ⚠️ 注意点
 

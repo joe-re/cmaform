@@ -1,24 +1,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import {
-  retrieveAgent,
-  writeAgentYamlFromRemote,
-} from '../lib/agents.js';
+import { retrieveAgent, writeAgentYamlFromRemote } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
-import {
-  CMAFORM_DIR,
-  SKILLS_DIR,
-  STATE_PATH,
-} from '../lib/config.js';
-import {
-  retrieveEnvironment,
-  writeEnvironmentManifestFromRemote,
-} from '../lib/environments.js';
-import {
-  retrieveMemoryStore,
-  writeMemoryStoreManifestFromRemote,
-} from '../lib/memory-stores.js';
+import { CMAFORM_DIR, SKILLS_DIR, STATE_PATH } from '../lib/config.js';
+import { retrieveEnvironment, writeEnvironmentManifestFromRemote } from '../lib/environments.js';
+import { retrieveMemoryStore, writeMemoryStoreManifestFromRemote } from '../lib/memory-stores.js';
 import { hashSkillDir, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 import { retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
@@ -32,10 +19,7 @@ export interface PullOptions {
   byId?: boolean;
 }
 
-export async function cmdPull(
-  query: string,
-  opts: PullOptions = {}
-): Promise<number> {
+export async function cmdPull(query: string, opts: PullOptions = {}): Promise<number> {
   if (query.startsWith('skill_')) {
     return cmdPullSkill(query);
   }
@@ -51,17 +35,15 @@ export async function cmdPull(
   if (!query.startsWith('agent_')) {
     process.stderr.write(
       formatErrorHeadline(
-        `pull expects an ID starting with 'agent_', 'skill_', 'memstore_', 'env_', or 'vlt_' (got: ${JSON.stringify(query)})`
-      ) + '\n'
+        `pull expects an ID starting with 'agent_', 'skill_', 'memstore_', 'env_', or 'vlt_' (got: ${JSON.stringify(query)})`,
+      ) + '\n',
     );
     return 2;
   }
 
   const agent = await retrieveAgent(query);
   if (!agent) {
-    process.stderr.write(
-      formatErrorHeadline(`agent not found: ${query}`) + '\n'
-    );
+    process.stderr.write(formatErrorHeadline(`agent not found: ${query}`) + '\n');
     return 1;
   }
 
@@ -69,17 +51,12 @@ export async function cmdPull(
   // Pre-register so that ref-rewriting can see this agent's own state (rare,
   // but harmless if multiagent.agents references itself).
   state.agents[agent.name] = { id: agent.id, version: agent.version };
-  const filePath = await writeAgentYamlFromRemote(
-    agent,
-    opts.byId ? null : state
-  );
+  const filePath = await writeAgentYamlFromRemote(agent, opts.byId ? null : state);
   process.stderr.write(
-    `==> wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${agent.id}, version=${agent.version})\n`
+    `==> wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${agent.id}, version=${agent.version})\n`,
   );
   await saveState(state);
-  process.stderr.write(
-    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-  );
+  process.stderr.write(`==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
 
   return 0;
 }
@@ -92,9 +69,7 @@ export async function cmdPull(
 async function cmdPullSkill(skillId: string): Promise<number> {
   const remote = await retrieveSkill(skillId);
   if (!remote) {
-    process.stderr.write(
-      formatErrorHeadline(`skill not found: ${skillId}`) + '\n'
-    );
+    process.stderr.write(formatErrorHeadline(`skill not found: ${skillId}`) + '\n');
     return 1;
   }
 
@@ -123,17 +98,15 @@ async function cmdPullSkill(skillId: string): Promise<number> {
   await saveState(state);
 
   process.stderr.write(
-    `==> imported skill into state: localName=${JSON.stringify(localName)} id=${remote.id} version=${remote.latest_version}\n`
+    `==> imported skill into state: localName=${JSON.stringify(localName)} id=${remote.id} version=${remote.latest_version}\n`,
   );
   if (!dirExists) {
     process.stderr.write(
       `==> NOTE: no local skill directory at ${path.relative(CMAFORM_DIR, dirPath)}.\n` +
-        `    SKILL.md cannot be fetched from the API; create it manually before running plan/apply.\n`
+        `    SKILL.md cannot be fetched from the API; create it manually before running plan/apply.\n`,
     );
   }
-  process.stderr.write(
-    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-  );
+  process.stderr.write(`==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   return 0;
 }
 
@@ -152,9 +125,7 @@ async function cmdPullSkill(skillId: string): Promise<number> {
 async function cmdPullEnvironment(envId: string): Promise<number> {
   const remote = await retrieveEnvironment(envId);
   if (!remote) {
-    process.stderr.write(
-      formatErrorHeadline(`environment not found: ${envId}`) + '\n'
-    );
+    process.stderr.write(formatErrorHeadline(`environment not found: ${envId}`) + '\n');
     return 1;
   }
 
@@ -170,19 +141,12 @@ async function cmdPullEnvironment(envId: string): Promise<number> {
     localName = remote.name.replace(/[/\\\s]+/g, '-');
   }
 
-  const manifestPath = await writeEnvironmentManifestFromRemote(
-    remote,
-    localName
-  );
-  process.stderr.write(
-    `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
-  );
+  const manifestPath = await writeEnvironmentManifestFromRemote(remote, localName);
+  process.stderr.write(`==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`);
 
   state.environments[localName] = { id: remote.id, name: remote.name };
   await saveState(state);
-  process.stderr.write(
-    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-  );
+  process.stderr.write(`==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   return 0;
 }
 
@@ -194,9 +158,7 @@ async function cmdPullEnvironment(envId: string): Promise<number> {
 async function cmdPullVault(vaultId: string): Promise<number> {
   const remote = await retrieveVault(vaultId);
   if (!remote) {
-    process.stderr.write(
-      formatErrorHeadline(`vault not found: ${vaultId}`) + '\n'
-    );
+    process.stderr.write(formatErrorHeadline(`vault not found: ${vaultId}`) + '\n');
     return 1;
   }
 
@@ -213,11 +175,9 @@ async function cmdPullVault(vaultId: string): Promise<number> {
   }
 
   const manifestPath = await writeVaultManifestFromRemote(remote, localName);
+  process.stderr.write(`==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`);
   process.stderr.write(
-    `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
-  );
-  process.stderr.write(
-    `==> NOTE: vault credentials are not managed by cmaform yet; any existing credentials remain attached on the server.\n`
+    `==> NOTE: vault credentials are not managed by cmaform yet; any existing credentials remain attached on the server.\n`,
   );
 
   state.vaults[localName] = {
@@ -225,18 +185,14 @@ async function cmdPullVault(vaultId: string): Promise<number> {
     display_name: remote.display_name,
   };
   await saveState(state);
-  process.stderr.write(
-    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-  );
+  process.stderr.write(`==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   return 0;
 }
 
 async function cmdPullMemoryStore(memstoreId: string): Promise<number> {
   const remote = await retrieveMemoryStore(memstoreId);
   if (!remote) {
-    process.stderr.write(
-      formatErrorHeadline(`memory_store not found: ${memstoreId}`) + '\n'
-    );
+    process.stderr.write(formatErrorHeadline(`memory_store not found: ${memstoreId}`) + '\n');
     return 1;
   }
 
@@ -253,18 +209,11 @@ async function cmdPullMemoryStore(memstoreId: string): Promise<number> {
     localName = remote.name.replace(/[/\\\s]+/g, '-');
   }
 
-  const manifestPath = await writeMemoryStoreManifestFromRemote(
-    remote,
-    localName
-  );
-  process.stderr.write(
-    `==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
-  );
+  const manifestPath = await writeMemoryStoreManifestFromRemote(remote, localName);
+  process.stderr.write(`==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`);
 
   state.memory_stores[localName] = { id: remote.id, name: remote.name };
   await saveState(state);
-  process.stderr.write(
-    `==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-  );
+  process.stderr.write(`==> state updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   return 0;
 }

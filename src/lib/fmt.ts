@@ -8,7 +8,7 @@ import type { State } from './types.js';
  */
 export function rewriteYamlRefsToNameForm(
   text: string,
-  state: Pick<State, 'agents' | 'skills'>
+  state: Pick<State, 'agents' | 'skills'>,
 ): { text: string; changed: number } {
   const agentRewrites = idLookups('id', state.agents);
   const skillRewrites = idLookups('skill_id', state.skills);
@@ -31,12 +31,12 @@ export function rewriteYamlRefsToNameForm(
  */
 function idLookups(
   yamlKey: 'id' | 'skill_id',
-  entries: Record<string, { id: string }>
+  entries: Record<string, { id: string }>,
 ): { pattern: RegExp; name: string }[] {
   return Object.entries(entries).map(([name, entry]) => ({
     pattern: new RegExp(
       `^([ \\t]+)${yamlKey}:[ \\t]+(['"]?)${escapeRegex(entry.id)}\\2([ \\t]+#.*)?$`,
-      'gm'
+      'gm',
     ),
     name,
   }));

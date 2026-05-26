@@ -115,9 +115,7 @@ export interface EnvironmentLimitedNetwork {
   allow_package_managers?: boolean;
 }
 
-export type EnvironmentNetworking =
-  | EnvironmentUnrestrictedNetwork
-  | EnvironmentLimitedNetwork;
+export type EnvironmentNetworking = EnvironmentUnrestrictedNetwork | EnvironmentLimitedNetwork;
 
 export interface EnvironmentPackages {
   apt?: string[];

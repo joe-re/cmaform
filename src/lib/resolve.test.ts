@@ -7,24 +7,24 @@ import { describe, expect, it, vi } from 'vitest';
 // real SDK call — which would either hit the network or fail auth. Mock those
 // two helpers so any such accidental fall-through throws a loud, descriptive
 // error instead.
-vi.mock('./agents.js', async importOriginal => {
+vi.mock('./agents.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./agents.js')>();
   return {
     ...actual,
     findAgentByName: vi.fn((name: string) => {
       throw new Error(
-        `findAgentByName(${JSON.stringify(name)}) should not be reached in tests — pre-populate remoteAgentByName in makeCtx().`
+        `findAgentByName(${JSON.stringify(name)}) should not be reached in tests — pre-populate remoteAgentByName in makeCtx().`,
       );
     }),
   };
 });
-vi.mock('./skills.js', async importOriginal => {
+vi.mock('./skills.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./skills.js')>();
   return {
     ...actual,
     findSkillByDisplayTitle: vi.fn((title: string) => {
       throw new Error(
-        `findSkillByDisplayTitle(${JSON.stringify(title)}) should not be reached in tests — pre-populate remoteSkillByTitle in makeCtx().`
+        `findSkillByDisplayTitle(${JSON.stringify(title)}) should not be reached in tests — pre-populate remoteSkillByTitle in makeCtx().`,
       );
     }),
   };
@@ -41,13 +41,7 @@ import {
   substitutePendingIds,
   type ResolutionContext,
 } from './resolve.js';
-import type {
-  AgentConfig,
-  LocalSkill,
-  RemoteAgent,
-  RemoteSkill,
-  State,
-} from './types.js';
+import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
 
 function emptyState(): State {
   return {
@@ -67,7 +61,7 @@ function makeCtx(
     /** Pre-seeded remote agent lookups. `null` = name confirmed missing on remote. */
     remoteAgents?: Record<string, RemoteAgent | null>;
     remoteSkills?: Record<string, RemoteSkill | null>;
-  } = {}
+  } = {},
 ): ResolutionContext {
   return {
     state: opts.state ?? emptyState(),
@@ -97,9 +91,7 @@ describe('resolveAgentConfig — agent refs', () => {
     expect(r.missingAgentRefs).toEqual([]);
     expect(r.forwardAgentDeps).toEqual([]);
     expect(r.idMismatches).toEqual([]);
-    expect(r.config.multiagent?.agents).toEqual([
-      { type: 'agent', id: 'agent_real_001' },
-    ]);
+    expect(r.config.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_real_001' }]);
   });
 
   it('resolves a name via the pre-cached remote lookup (no SDK call needed)', async () => {
@@ -113,9 +105,7 @@ describe('resolveAgentConfig — agent refs', () => {
       },
     };
     const r = await resolveAgentConfig(config, ctx);
-    expect(r.config.multiagent?.agents).toEqual([
-      { type: 'agent', id: 'agent_remote_002' },
-    ]);
+    expect(r.config.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_remote_002' }]);
     expect(r.forwardAgentDeps).toEqual([]);
   });
 
@@ -162,9 +152,7 @@ describe('resolveAgentConfig — agent refs', () => {
       },
     };
     const r = await resolveAgentConfig(config, ctx);
-    expect(r.config.multiagent?.agents).toEqual([
-      { type: 'agent', id: 'agent_real_009' },
-    ]);
+    expect(r.config.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_real_009' }]);
     expect(r.forwardAgentDeps).toEqual([]);
     expect(r.idMismatches).toEqual([]);
   });
@@ -180,9 +168,7 @@ describe('resolveAgentConfig — agent refs', () => {
       name: 'coordinator',
       multiagent: {
         type: 'coordinator',
-        agents: [
-          { type: 'agent', name: 'spec-qa', id: 'agent_stale_xxx' },
-        ],
+        agents: [{ type: 'agent', name: 'spec-qa', id: 'agent_stale_xxx' }],
       },
     };
     const r = await resolveAgentConfig(config, ctx);
@@ -203,9 +189,7 @@ describe('resolveAgentConfig — agent refs', () => {
       name: 'coordinator',
       multiagent: {
         type: 'coordinator',
-        agents: [
-          { type: 'agent', name: 'spec-qa', id: 'agent_real_001' },
-        ],
+        agents: [{ type: 'agent', name: 'spec-qa', id: 'agent_real_001' }],
       },
     };
     const r = await resolveAgentConfig(config, ctx);
@@ -233,9 +217,7 @@ describe('resolveAgentConfig — skill refs', () => {
       skills: [{ type: 'custom', name: 'slack-mention-lookup' }],
     };
     const r = await resolveAgentConfig(config, ctx);
-    expect(r.config.skills).toEqual([
-      { type: 'custom', skill_id: 'skill_real_001' },
-    ]);
+    expect(r.config.skills).toEqual([{ type: 'custom', skill_id: 'skill_real_001' }]);
   });
 
   it('produces a forward dep + sentinel when the skill only exists locally', async () => {
@@ -278,14 +260,10 @@ describe('substitutePendingIds', () => {
     const substituted = substitutePendingIds(
       config,
       new Map([['spec-qa', 'agent_just_created']]),
-      new Map([['my-skill', 'skill_just_created']])
+      new Map([['my-skill', 'skill_just_created']]),
     );
-    expect(substituted.multiagent?.agents).toEqual([
-      { type: 'agent', id: 'agent_just_created' },
-    ]);
-    expect(substituted.skills).toEqual([
-      { type: 'custom', skill_id: 'skill_just_created' },
-    ]);
+    expect(substituted.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_just_created' }]);
+    expect(substituted.skills).toEqual([{ type: 'custom', skill_id: 'skill_just_created' }]);
   });
 
   it('throws if a sentinel still points at a not-yet-created resource', () => {
@@ -296,9 +274,7 @@ describe('substitutePendingIds', () => {
         agents: [{ type: 'agent', id: pendingAgentSentinel('spec-qa') }],
       },
     };
-    expect(() =>
-      substitutePendingIds(config, new Map(), new Map())
-    ).toThrow(/spec-qa/);
+    expect(() => substitutePendingIds(config, new Map(), new Map())).toThrow(/spec-qa/);
   });
 });
 
@@ -313,7 +289,7 @@ describe('writeback helpers', () => {
         { type: 'agent', id: 'agent_real_001', version: 'latest' },
         { type: 'agent', id: 'agent_unknown_999' },
       ],
-      state
+      state,
     );
     expect(rewritten).toEqual([
       { type: 'agent', name: 'spec-qa', version: 'latest' },
@@ -340,7 +316,7 @@ describe('writeback helpers', () => {
         // Anthropic-provided skills (e.g. xlsx) stay in skill_id form.
         { type: 'anthropic', skill_id: 'xlsx' },
       ],
-      state
+      state,
     );
     expect(rewritten).toEqual([
       { type: 'custom', name: 'slack-mention-lookup' },

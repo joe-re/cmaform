@@ -31,14 +31,11 @@ import { loadState } from '../lib/state.js';
 export async function cmdFmt(): Promise<number> {
   const state = await loadState();
 
-  if (
-    Object.keys(state.agents).length === 0 &&
-    Object.keys(state.skills).length === 0
-  ) {
+  if (Object.keys(state.agents).length === 0 && Object.keys(state.skills).length === 0) {
     process.stderr.write(
       formatErrorHeadline(
-        'cmaform.state.json has no agents or skills — nothing to rewrite. Run `cmaform pull <id>` or `cmaform init` first.'
-      ) + '\n'
+        'cmaform.state.json has no agents or skills — nothing to rewrite. Run `cmaform pull <id>` or `cmaform init` first.',
+      ) + '\n',
     );
     return 2;
   }
@@ -53,7 +50,7 @@ export async function cmdFmt(): Promise<number> {
     if (changed === 0) continue;
     await fs.writeFile(filePath, after, 'utf-8');
     process.stdout.write(
-      `  [~] ${path.relative(CMAFORM_DIR, filePath)}: rewrote ${changed} reference(s)\n`
+      `  [~] ${path.relative(CMAFORM_DIR, filePath)}: rewrote ${changed} reference(s)\n`,
     );
     filesRewritten++;
     refsRewritten += changed;
@@ -64,7 +61,7 @@ export async function cmdFmt(): Promise<number> {
     return 0;
   }
   process.stdout.write(
-    `\nfmt complete: rewrote ${refsRewritten} reference(s) across ${filesRewritten} file(s).\n`
+    `\nfmt complete: rewrote ${refsRewritten} reference(s) across ${filesRewritten} file(s).\n`,
   );
   return 0;
 }

@@ -1,32 +1,19 @@
 import path from 'node:path';
 
-import {
-  findAgentByName,
-  retrieveAgent,
-} from '../lib/agents.js';
+import { findAgentByName, retrieveAgent } from '../lib/agents.js';
 import { STATE_PATH } from '../lib/config.js';
 import {
   listEnvironments,
   loadAllEnvironmentConfigs,
   retrieveEnvironment,
 } from '../lib/environments.js';
-import {
-  listMemoryStores,
-  retrieveMemoryStore,
-} from '../lib/memory-stores.js';
-import {
-  findSkillByDisplayTitle,
-  retrieveSkill,
-} from '../lib/skills.js';
+import { listMemoryStores, retrieveMemoryStore } from '../lib/memory-stores.js';
+import { findSkillByDisplayTitle, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import {
-  listVaults,
-  loadAllVaultConfigs,
-  retrieveVault,
-} from '../lib/vaults.js';
+import { listVaults, loadAllVaultConfigs, retrieveVault } from '../lib/vaults.js';
 
 /**
  * Initialize / reconcile the local state file against the current remote. Never writes to remote.
@@ -56,7 +43,7 @@ export async function cmdInit(): Promise<number> {
     if (!remote || remote.archived_at) {
       delete state.agents[name];
       process.stdout.write(
-        `  [-] removed from state: agent ${JSON.stringify(name)} (id=${entry.id} is archived or missing)\n`
+        `  [-] removed from state: agent ${JSON.stringify(name)} (id=${entry.id} is archived or missing)\n`,
       );
       changed++;
       continue;
@@ -65,7 +52,7 @@ export async function cmdInit(): Promise<number> {
       delete state.agents[name];
       state.agents[remote.name] = { id: remote.id, version: remote.version };
       process.stdout.write(
-        `  [~] renamed agent in state: ${JSON.stringify(name)} -> ${JSON.stringify(remote.name)}\n`
+        `  [~] renamed agent in state: ${JSON.stringify(name)} -> ${JSON.stringify(remote.name)}\n`,
       );
       changed++;
       continue;
@@ -73,7 +60,7 @@ export async function cmdInit(): Promise<number> {
     if (remote.version !== entry.version) {
       state.agents[name] = { id: remote.id, version: remote.version };
       process.stdout.write(
-        `  [~] agent version refreshed: ${JSON.stringify(name)} ${entry.version} -> ${remote.version}\n`
+        `  [~] agent version refreshed: ${JSON.stringify(name)} ${entry.version} -> ${remote.version}\n`,
       );
       changed++;
     }
@@ -84,7 +71,7 @@ export async function cmdInit(): Promise<number> {
     if (remote) {
       state.agents[name] = { id: remote.id, version: remote.version };
       process.stdout.write(
-        `  [+] discovered agent: ${JSON.stringify(name)} (id=${remote.id}, version=${remote.version})\n`
+        `  [+] discovered agent: ${JSON.stringify(name)} (id=${remote.id}, version=${remote.version})\n`,
       );
       changed++;
     }
@@ -96,15 +83,12 @@ export async function cmdInit(): Promise<number> {
     if (!remote) {
       delete state.skills[localName];
       process.stdout.write(
-        `  [-] removed from state: skill ${JSON.stringify(localName)} (id=${entry.id} is missing)\n`
+        `  [-] removed from state: skill ${JSON.stringify(localName)} (id=${entry.id} is missing)\n`,
       );
       changed++;
       continue;
     }
-    if (
-      remote.latest_version !== entry.version ||
-      remote.display_title !== entry.display_title
-    ) {
+    if (remote.latest_version !== entry.version || remote.display_title !== entry.display_title) {
       state.skills[localName] = {
         id: remote.id,
         version: remote.latest_version,
@@ -112,7 +96,7 @@ export async function cmdInit(): Promise<number> {
         display_title: remote.display_title,
       };
       process.stdout.write(
-        `  [~] skill version refreshed: ${JSON.stringify(localName)} ${entry.version} -> ${remote.latest_version}\n`
+        `  [~] skill version refreshed: ${JSON.stringify(localName)} ${entry.version} -> ${remote.latest_version}\n`,
       );
       changed++;
     }
@@ -128,7 +112,7 @@ export async function cmdInit(): Promise<number> {
         display_title: remote.display_title,
       };
       process.stdout.write(
-        `  [+] discovered skill: ${JSON.stringify(localName)} (id=${remote.id}, version=${remote.latest_version})\n`
+        `  [+] discovered skill: ${JSON.stringify(localName)} (id=${remote.id}, version=${remote.latest_version})\n`,
       );
       changed++;
     }
@@ -140,7 +124,7 @@ export async function cmdInit(): Promise<number> {
     if (!remote || remote.archived_at) {
       delete state.memory_stores[localName];
       process.stdout.write(
-        `  [-] removed from state: memory_store ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`
+        `  [-] removed from state: memory_store ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`,
       );
       changed++;
       continue;
@@ -148,7 +132,7 @@ export async function cmdInit(): Promise<number> {
     if (remote.name !== entry.name) {
       state.memory_stores[localName] = { id: entry.id, name: remote.name };
       process.stdout.write(
-        `  [~] memory_store name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`
+        `  [~] memory_store name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`,
       );
       changed++;
     }
@@ -157,11 +141,11 @@ export async function cmdInit(): Promise<number> {
   for (const [localName, { config }] of memoryStores) {
     if (state.memory_stores[localName]) continue;
     const remotes = await listMemoryStores();
-    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
     if (remote) {
       state.memory_stores[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
-        `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       changed++;
     }
@@ -173,7 +157,7 @@ export async function cmdInit(): Promise<number> {
     if (!remote || remote.archived_at) {
       delete state.environments[localName];
       process.stdout.write(
-        `  [-] removed from state: environment ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`
+        `  [-] removed from state: environment ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`,
       );
       changed++;
       continue;
@@ -181,7 +165,7 @@ export async function cmdInit(): Promise<number> {
     if (remote.name !== entry.name) {
       state.environments[localName] = { id: entry.id, name: remote.name };
       process.stdout.write(
-        `  [~] environment name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`
+        `  [~] environment name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`,
       );
       changed++;
     }
@@ -189,11 +173,11 @@ export async function cmdInit(): Promise<number> {
   for (const [localName, { config }] of environments) {
     if (state.environments[localName]) continue;
     const remotes = await listEnvironments();
-    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
     if (remote) {
       state.environments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
-        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       changed++;
     }
@@ -205,7 +189,7 @@ export async function cmdInit(): Promise<number> {
     if (!remote || remote.archived_at) {
       delete state.vaults[localName];
       process.stdout.write(
-        `  [-] removed from state: vault ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`
+        `  [-] removed from state: vault ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`,
       );
       changed++;
       continue;
@@ -216,7 +200,7 @@ export async function cmdInit(): Promise<number> {
         display_name: remote.display_name,
       };
       process.stdout.write(
-        `  [~] vault display_name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.display_name)} -> ${JSON.stringify(remote.display_name)})\n`
+        `  [~] vault display_name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.display_name)} -> ${JSON.stringify(remote.display_name)})\n`,
       );
       changed++;
     }
@@ -225,7 +209,7 @@ export async function cmdInit(): Promise<number> {
     if (state.vaults[localName]) continue;
     const remotes = await listVaults();
     const remote = remotes.find(
-      r => r.display_name === vault.config.display_name && !r.archived_at
+      (r) => r.display_name === vault.config.display_name && !r.archived_at,
     );
     if (remote) {
       state.vaults[localName] = {
@@ -233,7 +217,7 @@ export async function cmdInit(): Promise<number> {
         display_name: remote.display_name,
       };
       process.stdout.write(
-        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       changed++;
     }
@@ -245,7 +229,7 @@ export async function cmdInit(): Promise<number> {
   }
   await saveState(state);
   process.stdout.write(
-    `\nState refreshed: ${changed} change(s). Saved to ${path.relative(process.cwd(), STATE_PATH)}\n`
+    `\nState refreshed: ${changed} change(s). Saved to ${path.relative(process.cwd(), STATE_PATH)}\n`,
   );
   return 0;
 }

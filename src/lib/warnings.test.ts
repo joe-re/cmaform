@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Action } from './plan.js';
 import type { ResolvedConfig } from './resolve.js';
-import {
-  attachDanglingReferenceWarnings,
-  hasDanglingWarnings,
-} from './warnings.js';
+import { attachDanglingReferenceWarnings, hasDanglingWarnings } from './warnings.js';
 
 function resolved(config: ResolvedConfig['config']): ResolvedConfig {
   return {
@@ -20,9 +17,7 @@ function resolved(config: ResolvedConfig['config']): ResolvedConfig {
 
 describe('attachDanglingReferenceWarnings', () => {
   it('attaches warnings when deleting a skill still referenced by an agent', () => {
-    const actions: Action[] = [
-      { type: 'skill_delete', localName: 'skill-a', id: 'skill_1' },
-    ];
+    const actions: Action[] = [{ type: 'skill_delete', localName: 'skill-a', id: 'skill_1' }];
     const resolutions = new Map([
       [
         'agent-a',
@@ -45,9 +40,7 @@ describe('attachDanglingReferenceWarnings', () => {
   });
 
   it('attaches warnings when deleting an agent still referenced by a coordinator', () => {
-    const actions: Action[] = [
-      { type: 'delete', name: 'child-agent', id: 'agent_child' },
-    ];
+    const actions: Action[] = [{ type: 'delete', name: 'child-agent', id: 'agent_child' }];
     const resolutions = new Map([
       [
         'coordinator',
@@ -67,21 +60,17 @@ describe('attachDanglingReferenceWarnings', () => {
     attachDanglingReferenceWarnings(actions, resolutions);
 
     expect(actions[0]).toMatchObject({
-      warnings: [
-        { referrer: 'coordinator', fieldPath: 'multiagent.agents[1]' },
-      ],
+      warnings: [{ referrer: 'coordinator', fieldPath: 'multiagent.agents[1]' }],
     });
     expect(hasDanglingWarnings(actions)).toBe(true);
   });
 
   it('leaves delete actions untouched when there are no dangling refs', () => {
-    const actions: Action[] = [
-      { type: 'skill_delete', localName: 'skill-a', id: 'skill_1' },
-    ];
+    const actions: Action[] = [{ type: 'skill_delete', localName: 'skill-a', id: 'skill_1' }];
 
     attachDanglingReferenceWarnings(
       actions,
-      new Map([['agent-a', resolved({ name: 'agent-a', skills: [] })]])
+      new Map([['agent-a', resolved({ name: 'agent-a', skills: [] })]]),
     );
 
     expect(actions[0]).not.toHaveProperty('warnings');

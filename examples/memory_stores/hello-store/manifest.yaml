@@ -1,4 +1,4 @@
 name: hello-store
 description: Minimal example memory store for the cmaform hello example.
 metadata:
-  example: "true"
+  example: 'true'

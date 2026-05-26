@@ -6,10 +6,10 @@ cmaform follows semantic versioning. Until a `1.0.0` release ships, only the
 **latest published version** receives security patches. Once `1.0.x` is
 released, the policy will be revisited.
 
-| Version | Supported |
-| ------- | --------- |
-| latest `0.x` on npm | ✅ |
-| Older `0.x` | ❌ — please upgrade |
+| Version             | Supported           |
+| ------------------- | ------------------- |
+| latest `0.x` on npm | ✅                  |
+| Older `0.x`         | ❌ — please upgrade |
 
 ## Reporting a vulnerability
 

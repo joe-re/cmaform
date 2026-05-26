@@ -1,26 +1,11 @@
 import path from 'node:path';
 
-import {
-  listAgents,
-  loadAllAgentConfigs,
-} from '../lib/agents.js';
+import { listAgents, loadAllAgentConfigs } from '../lib/agents.js';
 import { CMAFORM_DIR } from '../lib/config.js';
-import {
-  listEnvironments,
-  loadAllEnvironmentConfigs,
-} from '../lib/environments.js';
-import {
-  listMemoryStores,
-  loadAllMemoryStoreConfigs,
-} from '../lib/memory-stores.js';
-import {
-  listVaults,
-  loadAllVaultConfigs,
-} from '../lib/vaults.js';
-import {
-  listSkills,
-  loadAllSkillConfigs,
-} from '../lib/skills.js';
+import { listEnvironments, loadAllEnvironmentConfigs } from '../lib/environments.js';
+import { listMemoryStores, loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
+import { listVaults, loadAllVaultConfigs } from '../lib/vaults.js';
+import { listSkills, loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState } from '../lib/state.js';
 
 export async function cmdList(): Promise<number> {
@@ -35,11 +20,9 @@ export async function cmdList(): Promise<number> {
   if (configs.size === 0) console.log('  (none)');
   for (const [name, { filePath }] of configs) {
     const tracked = state.agents[name];
-    const idStr = tracked
-      ? `id=${tracked.id} version=${tracked.version}`
-      : 'untracked';
+    const idStr = tracked ? `id=${tracked.id} version=${tracked.version}` : 'untracked';
     console.log(
-      `  ${path.relative(CMAFORM_DIR, filePath)}  name=${JSON.stringify(name)}  ${idStr}`
+      `  ${path.relative(CMAFORM_DIR, filePath)}  name=${JSON.stringify(name)}  ${idStr}`,
     );
   }
 
@@ -48,9 +31,9 @@ export async function cmdList(): Promise<number> {
   let remoteCount = 0;
   for (const a of remoteAgents) {
     if (a.archived_at) continue;
-    const tracked = Object.values(state.agents).some(s => s.id === a.id);
+    const tracked = Object.values(state.agents).some((s) => s.id === a.id);
     console.log(
-      `  ${JSON.stringify(a.name)}  id=${a.id}  version=${a.version}${tracked ? '' : '  (untracked)'}`
+      `  ${JSON.stringify(a.name)}  id=${a.id}  version=${a.version}${tracked ? '' : '  (untracked)'}`,
     );
     remoteCount++;
   }
@@ -63,9 +46,7 @@ export async function cmdList(): Promise<number> {
     const idStr = tracked
       ? `id=${tracked.id} version=${tracked.version} hash_match=${tracked.hash === skill.hash}`
       : 'untracked';
-    console.log(
-      `  ${path.relative(CMAFORM_DIR, skill.dirPath)}  ${idStr}`
-    );
+    console.log(`  ${path.relative(CMAFORM_DIR, skill.dirPath)}  ${idStr}`);
   }
 
   console.log('\n=== remote skills (custom) ===');
@@ -73,9 +54,9 @@ export async function cmdList(): Promise<number> {
   try {
     const remoteSkills = await listSkills('custom');
     for (const s of remoteSkills) {
-      const tracked = Object.values(state.skills).some(e => e.id === s.id);
+      const tracked = Object.values(state.skills).some((e) => e.id === s.id);
       console.log(
-        `  ${JSON.stringify(s.display_title)}  id=${s.id}  version=${s.latest_version}${tracked ? '' : '  (untracked)'}`
+        `  ${JSON.stringify(s.display_title)}  id=${s.id}  version=${s.latest_version}${tracked ? '' : '  (untracked)'}`,
       );
       remoteSkillCount++;
     }
@@ -91,7 +72,7 @@ export async function cmdList(): Promise<number> {
     const tracked = state.memory_stores[localName];
     const idStr = tracked ? `id=${tracked.id}` : 'untracked';
     console.log(
-      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`
+      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`,
     );
   }
 
@@ -101,12 +82,8 @@ export async function cmdList(): Promise<number> {
     const remoteMems = await listMemoryStores();
     for (const m of remoteMems) {
       if (m.archived_at) continue;
-      const tracked = Object.values(state.memory_stores).some(
-        e => e.id === m.id
-      );
-      console.log(
-        `  ${JSON.stringify(m.name)}  id=${m.id}${tracked ? '' : '  (untracked)'}`
-      );
+      const tracked = Object.values(state.memory_stores).some((e) => e.id === m.id);
+      console.log(`  ${JSON.stringify(m.name)}  id=${m.id}${tracked ? '' : '  (untracked)'}`);
       remoteMemCount++;
     }
   } catch (err) {
@@ -121,7 +98,7 @@ export async function cmdList(): Promise<number> {
     const tracked = state.environments[localName];
     const idStr = tracked ? `id=${tracked.id}` : 'untracked';
     console.log(
-      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`
+      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`,
     );
   }
 
@@ -131,12 +108,8 @@ export async function cmdList(): Promise<number> {
     const remoteEnvs = await listEnvironments();
     for (const e of remoteEnvs) {
       if (e.archived_at) continue;
-      const tracked = Object.values(state.environments).some(
-        s => s.id === e.id
-      );
-      console.log(
-        `  ${JSON.stringify(e.name)}  id=${e.id}${tracked ? '' : '  (untracked)'}`
-      );
+      const tracked = Object.values(state.environments).some((s) => s.id === e.id);
+      console.log(`  ${JSON.stringify(e.name)}  id=${e.id}${tracked ? '' : '  (untracked)'}`);
       remoteEnvCount++;
     }
   } catch (err) {
@@ -150,7 +123,7 @@ export async function cmdList(): Promise<number> {
     const tracked = state.vaults[localName];
     const idStr = tracked ? `id=${tracked.id}` : 'untracked';
     console.log(
-      `  ${path.relative(CMAFORM_DIR, vault.dirPath)}  display_name=${JSON.stringify(vault.config.display_name)}  ${idStr}`
+      `  ${path.relative(CMAFORM_DIR, vault.dirPath)}  display_name=${JSON.stringify(vault.config.display_name)}  ${idStr}`,
     );
   }
 
@@ -160,9 +133,9 @@ export async function cmdList(): Promise<number> {
     const remoteVaults = await listVaults();
     for (const v of remoteVaults) {
       if (v.archived_at) continue;
-      const tracked = Object.values(state.vaults).some(s => s.id === v.id);
+      const tracked = Object.values(state.vaults).some((s) => s.id === v.id);
       console.log(
-        `  ${JSON.stringify(v.display_name)}  id=${v.id}${tracked ? '' : '  (untracked)'}`
+        `  ${JSON.stringify(v.display_name)}  id=${v.id}${tracked ? '' : '  (untracked)'}`,
       );
       remoteVaultCount++;
     }

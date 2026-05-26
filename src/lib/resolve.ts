@@ -1,12 +1,6 @@
 import { findAgentByName } from './agents.js';
 import { findSkillByDisplayTitle } from './skills.js';
-import type {
-  AgentConfig,
-  LocalSkill,
-  RemoteAgent,
-  RemoteSkill,
-  State,
-} from './types.js';
+import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
 
 /**
  * Build-time context for resolving name-based references in agent YAML.
@@ -33,7 +27,7 @@ export interface ResolutionContext {
 export function buildResolutionContext(
   state: State,
   localAgents: Map<string, { config: AgentConfig; filePath: string }>,
-  localSkills: Map<string, LocalSkill>
+  localSkills: Map<string, LocalSkill>,
 ): ResolutionContext {
   return {
     state,
@@ -84,7 +78,7 @@ export type AgentResolution =
 
 export async function resolveAgentName(
   name: string,
-  ctx: ResolutionContext
+  ctx: ResolutionContext,
 ): Promise<AgentResolution> {
   const tracked = ctx.state.agents[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
@@ -112,7 +106,7 @@ export type SkillResolution =
 
 export async function resolveSkillName(
   name: string,
-  ctx: ResolutionContext
+  ctx: ResolutionContext,
 ): Promise<SkillResolution> {
   const tracked = ctx.state.skills[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
@@ -161,7 +155,7 @@ export interface ResolvedConfig {
  */
 export async function resolveAgentConfig(
   config: AgentConfig,
-  ctx: ResolutionContext
+  ctx: ResolutionContext,
 ): Promise<ResolvedConfig> {
   const forwardAgentDeps: string[] = [];
   const forwardSkillDeps: string[] = [];
@@ -188,9 +182,7 @@ export async function resolveAgentConfig(
       ) {
         const res = await resolveAgentName(e.name, ctx);
         if (res.kind === 'resolved' && res.id !== e.id) {
-          idMismatches.push(
-            `agent "${e.name}" pinned id=${e.id}, resolved id=${res.id}`
-          );
+          idMismatches.push(`agent "${e.name}" pinned id=${e.id}, resolved id=${res.id}`);
         }
         // Pass through the original id form. Mismatch (if any) is surfaced
         // via idMismatches; the caller decides whether to fail.
@@ -248,7 +240,7 @@ export async function resolveAgentConfig(
         const res = await resolveSkillName(e.name, ctx);
         if (res.kind === 'resolved' && res.id !== e.skill_id) {
           idMismatches.push(
-            `skill "${e.name}" pinned skill_id=${e.skill_id}, resolved skill_id=${res.id}`
+            `skill "${e.name}" pinned skill_id=${e.skill_id}, resolved skill_id=${res.id}`,
           );
         }
         newSkills.push(entry);
@@ -306,23 +298,21 @@ export async function resolveAgentConfig(
 export function substitutePendingIds(
   config: AgentConfig,
   createdAgents: Map<string, string>,
-  createdSkills: Map<string, string>
+  createdSkills: Map<string, string>,
 ): AgentConfig {
   const out: AgentConfig = { ...config };
 
   if (out.multiagent && Array.isArray(out.multiagent.agents)) {
     out.multiagent = {
       ...out.multiagent,
-      agents: out.multiagent.agents.map(entry => {
+      agents: out.multiagent.agents.map((entry) => {
         const e = entry as unknown as Record<string, unknown> | null;
         if (e && typeof e === 'object' && e.type === 'agent') {
           const pending = extractPendingAgent(e.id);
           if (pending) {
             const resolvedId = createdAgents.get(pending);
             if (!resolvedId) {
-              throw new Error(
-                `internal: agent "${pending}" referenced but not yet created`
-              );
+              throw new Error(`internal: agent "${pending}" referenced but not yet created`);
             }
             return { ...e, id: resolvedId };
           }
@@ -333,16 +323,14 @@ export function substitutePendingIds(
   }
 
   if (Array.isArray(out.skills)) {
-    out.skills = out.skills.map(entry => {
+    out.skills = out.skills.map((entry) => {
       const e = entry as unknown as Record<string, unknown> | null;
       if (e && typeof e === 'object' && e.type === 'custom') {
         const pending = extractPendingSkill(e.skill_id);
         if (pending) {
           const resolvedId = createdSkills.get(pending);
           if (!resolvedId) {
-            throw new Error(
-              `internal: skill "${pending}" referenced but not yet created`
-            );
+            throw new Error(`internal: skill "${pending}" referenced but not yet created`);
           }
           return { ...e, skill_id: resolvedId };
         }
@@ -363,7 +351,7 @@ export function substitutePendingIds(
  */
 export function prettifySentinelsForDisplay(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(v => prettifySentinelsForDisplay(v));
+    return value.map((v) => prettifySentinelsForDisplay(v));
   }
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
@@ -390,21 +378,16 @@ export function prettifySentinelsForDisplay(value: unknown): unknown {
  */
 export function rewriteAgentRefsToNameForm(
   agents: unknown[] | undefined,
-  state: State
+  state: State,
 ): unknown[] | undefined {
   if (!Array.isArray(agents)) return agents;
   const idToName = new Map<string, string>();
   for (const [name, entry] of Object.entries(state.agents)) {
     idToName.set(entry.id, name);
   }
-  return agents.map(entry => {
+  return agents.map((entry) => {
     const e = entry as Record<string, unknown> | null;
-    if (
-      e &&
-      typeof e === 'object' &&
-      e.type === 'agent' &&
-      typeof e.id === 'string'
-    ) {
+    if (e && typeof e === 'object' && e.type === 'agent' && typeof e.id === 'string') {
       const name = idToName.get(e.id);
       if (name) {
         const out: Record<string, unknown> = { type: 'agent', name };
@@ -418,21 +401,16 @@ export function rewriteAgentRefsToNameForm(
 
 export function rewriteSkillRefsToNameForm(
   skills: unknown[] | undefined,
-  state: State
+  state: State,
 ): unknown[] | undefined {
   if (!Array.isArray(skills)) return skills;
   const idToLocalName = new Map<string, string>();
   for (const [localName, entry] of Object.entries(state.skills)) {
     idToLocalName.set(entry.id, localName);
   }
-  return skills.map(entry => {
+  return skills.map((entry) => {
     const e = entry as Record<string, unknown> | null;
-    if (
-      e &&
-      typeof e === 'object' &&
-      e.type === 'custom' &&
-      typeof e.skill_id === 'string'
-    ) {
+    if (e && typeof e === 'object' && e.type === 'custom' && typeof e.skill_id === 'string') {
       const name = idToLocalName.get(e.skill_id);
       if (name) {
         const out: Record<string, unknown> = { type: 'custom', name };

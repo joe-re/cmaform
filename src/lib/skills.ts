@@ -60,11 +60,7 @@ function parseSkillFrontmatter(content: string): {
     name?: unknown;
     description?: unknown;
   } | null;
-  if (
-    !fm ||
-    typeof fm.name !== 'string' ||
-    typeof fm.description !== 'string'
-  ) {
+  if (!fm || typeof fm.name !== 'string' || typeof fm.description !== 'string') {
     throw new Error('SKILL.md frontmatter requires both `name` and `description`');
   }
   return { name: fm.name, description: fm.description };
@@ -93,7 +89,7 @@ async function loadLocalSkill(dirPath: string): Promise<LocalSkill> {
     description: fm.description,
     displayTitle: localName,
     hash,
-    files: files.map(f => path.relative(dirPath, f)),
+    files: files.map((f) => path.relative(dirPath, f)),
   };
 }
 
@@ -101,8 +97,8 @@ async function listSkillDirs(): Promise<string[]> {
   try {
     const entries = await fs.readdir(SKILLS_DIR, { withFileTypes: true });
     return entries
-      .filter(e => e.isDirectory())
-      .map(e => path.join(SKILLS_DIR, e.name))
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(SKILLS_DIR, e.name))
       .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -152,11 +148,9 @@ export async function retrieveSkill(id: string): Promise<RemoteSkill | null> {
   }
 }
 
-export async function findSkillByDisplayTitle(
-  title: string
-): Promise<RemoteSkill | null> {
+export async function findSkillByDisplayTitle(title: string): Promise<RemoteSkill | null> {
   const skills = await listSkills('custom');
-  return skills.find(s => s.display_title === title) ?? null;
+  return skills.find((s) => s.display_title === title) ?? null;
 }
 
 async function buildSkillUploadables(skill: LocalSkill) {
@@ -184,7 +178,7 @@ export async function createSkill(skill: LocalSkill): Promise<RemoteSkill> {
 
 export async function uploadSkillVersion(
   id: string,
-  skill: LocalSkill
+  skill: LocalSkill,
 ): Promise<{ version: string }> {
   // Workaround for an SDK bug still present in @anthropic-ai/sdk 0.98:
   // `skills.versions.create` defaults its internal `stripFilenames` flag to
@@ -193,9 +187,7 @@ export async function uploadSkillVersion(
   // the form "<folder>/SKILL.md", so we build the FormData and POST it
   // ourselves here. Re-test against future SDK releases.
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      'uploadSkillVersion requires ANTHROPIC_API_KEY to be set'
-    );
+    throw new Error('uploadSkillVersion requires ANTHROPIC_API_KEY to be set');
   }
 
   const form = new FormData();
@@ -206,28 +198,22 @@ export async function uploadSkillVersion(
     form.append('files[]', new Blob([new Uint8Array(buf)]), multipartName);
   }
 
-  const res = await fetch(
-    `https://api.anthropic.com/v1/skills/${id}/versions?beta=true`,
-    {
-      method: 'POST',
-      headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': SKILLS_BETA,
-      },
-      body: form,
-    }
-  );
+  const res = await fetch(`https://api.anthropic.com/v1/skills/${id}/versions?beta=true`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': SKILLS_BETA,
+    },
+    body: form,
+  });
   if (!res.ok) {
     // Truncate the response body before surfacing it so we don't bubble up
     // any unexpectedly long server payload (or, hypothetically, an echoed
     // request snippet) into the user's terminal.
     const text = await res.text();
-    const truncated =
-      text.length > 500 ? text.slice(0, 500) + '… (truncated)' : text;
-    throw new Error(
-      `skill version create failed (HTTP ${res.status}): ${truncated}`
-    );
+    const truncated = text.length > 500 ? text.slice(0, 500) + '… (truncated)' : text;
+    throw new Error(`skill version create failed (HTTP ${res.status}): ${truncated}`);
   }
   return (await res.json()) as { version: string };
 }

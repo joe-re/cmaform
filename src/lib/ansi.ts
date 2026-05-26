@@ -23,7 +23,7 @@ export const ANSI = {
 export type AnsiCode = keyof typeof ANSI;
 
 function wrap(codes: AnsiCode[], text: string): string {
-  return codes.map(c => ANSI[c]).join('') + text + ANSI.reset;
+  return codes.map((c) => ANSI[c]).join('') + text + ANSI.reset;
 }
 
 // ---------------- stdout (plan output) ----------------

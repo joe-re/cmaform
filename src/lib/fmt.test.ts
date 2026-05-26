@@ -90,7 +90,7 @@ multiagent:
   Slack スレッドに、与えられた \`text\` をそのまま投稿する。
   tool result には投稿された Slack メッセージの permalink が含まれる
   想定で、coordinator は必要に応じて後続のステップで利用する。
-`
+`,
     );
   });
 

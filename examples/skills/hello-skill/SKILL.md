@@ -9,5 +9,5 @@ When the user greets you, respond with a single friendly sentence that mirrors t
 
 ## Examples
 
-- User: "hi"  → "Hi there! What are you working on today?"
-- User: "good morning"  → "Good morning! What's first on your plate today?"
+- User: "hi" → "Hi there! What are you working on today?"
+- User: "good morning" → "Good morning! What's first on your plate today?"

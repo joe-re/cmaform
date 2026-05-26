@@ -1,15 +1,6 @@
-import {
-  fieldDiffs,
-  resolveRemote,
-} from './agents.js';
-import {
-  environmentFieldDiffs,
-  retrieveEnvironment,
-} from './environments.js';
-import {
-  memoryStoreFieldDiffs,
-  retrieveMemoryStore,
-} from './memory-stores.js';
+import { fieldDiffs, resolveRemote } from './agents.js';
+import { environmentFieldDiffs, retrieveEnvironment } from './environments.js';
+import { memoryStoreFieldDiffs, retrieveMemoryStore } from './memory-stores.js';
 import type { ResolvedConfig } from './resolve.js';
 import { findSkillByDisplayTitle } from './skills.js';
 import { retrieveVault, type LocalVault } from './vaults.js';
@@ -169,7 +160,7 @@ export async function computePlan(
   memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>,
   environments: Map<string, { config: EnvironmentConfig; dirPath: string }>,
   vaults: Map<string, LocalVault>,
-  resolutions: Map<string, ResolvedConfig>
+  resolutions: Map<string, ResolvedConfig>,
 ): Promise<Action[]> {
   const actions: Action[] = [];
 
@@ -375,20 +366,10 @@ export async function computePlan(
 
 // ---------------- target filtering ----------------
 
-type ResourceKind =
-  | 'agent'
-  | 'skill'
-  | 'memory_store'
-  | 'environment'
-  | 'vault';
+type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault';
 
 function actionResourceName(a: Action): string {
-  if (
-    a.type === 'create' ||
-    a.type === 'update' ||
-    a.type === 'noop' ||
-    a.type === 'delete'
-  ) {
+  if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
     return a.name;
   }
   return (a as { localName: string }).localName;
@@ -421,7 +402,7 @@ const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
 
 export function filterActionsByTargets(
   actions: Action[],
-  targets: string[]
+  targets: string[],
 ): { filtered: Action[]; unmatched: string[] } {
   const kindTargets = new Set<ResourceKind>();
   const nameTargets = new Set<string>();
@@ -445,17 +426,17 @@ export function filterActionsByTargets(
     }
   }
 
-  const unmatched = [...nameTargets].filter(n => !matchedNames.has(n));
+  const unmatched = [...nameTargets].filter((n) => !matchedNames.has(n));
   return { filtered, unmatched };
 }
 
 export function hasChanges(actions: Action[]): boolean {
   return actions.some(
-    a =>
+    (a) =>
       a.type !== 'noop' &&
       a.type !== 'skill_noop' &&
       a.type !== 'memstore_noop' &&
       a.type !== 'env_noop' &&
-      a.type !== 'vault_noop'
+      a.type !== 'vault_noop',
   );
 }

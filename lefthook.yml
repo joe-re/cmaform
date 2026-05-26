@@ -1,4 +1,8 @@
 pre-commit:
   commands:
+    fmt:
+      run: ./node_modules/.bin/oxfmt --check .
+    lint:
+      run: ./node_modules/.bin/oxlint
     typecheck:
-      run: pnpm run typecheck
+      run: ./node_modules/.bin/tsc --noEmit

@@ -6,7 +6,7 @@ import { actionId, topoSortActions } from './topo-sort.js';
 function createAgent(
   name: string,
   forwardAgentDeps: string[] = [],
-  forwardSkillDeps: string[] = []
+  forwardSkillDeps: string[] = [],
 ): Action {
   return {
     type: 'create',

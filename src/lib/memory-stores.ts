@@ -4,16 +4,9 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
-import {
-  MEMORY_STORES_DIR,
-  MEMORY_STORE_MANIFEST_FILENAME,
-} from './config.js';
+import { MEMORY_STORES_DIR, MEMORY_STORE_MANIFEST_FILENAME } from './config.js';
 import { anthropic, isSDKNotFound } from './sdk.js';
-import type {
-  FieldDiff,
-  MemoryStoreConfig,
-  RemoteMemoryStore,
-} from './types.js';
+import type { FieldDiff, MemoryStoreConfig, RemoteMemoryStore } from './types.js';
 
 const MEMORY_STORE_COMPARE_FIELDS: (keyof MemoryStoreConfig)[] = [
   'name',
@@ -29,8 +22,8 @@ async function listMemoryStoreDirs(): Promise<string[]> {
       withFileTypes: true,
     });
     return entries
-      .filter(e => e.isDirectory())
-      .map(e => path.join(MEMORY_STORES_DIR, e.name))
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(MEMORY_STORES_DIR, e.name))
       .sort();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
@@ -38,18 +31,14 @@ async function listMemoryStoreDirs(): Promise<string[]> {
   }
 }
 
-async function readMemoryStoreManifest(
-  dirPath: string
-): Promise<MemoryStoreConfig> {
+async function readMemoryStoreManifest(dirPath: string): Promise<MemoryStoreConfig> {
   const manifestPath = path.join(dirPath, MEMORY_STORE_MANIFEST_FILENAME);
   let content: string;
   try {
     content = await fs.readFile(manifestPath, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(
-        `${manifestPath}: ${MEMORY_STORE_MANIFEST_FILENAME} not found`
-      );
+      throw new Error(`${manifestPath}: ${MEMORY_STORE_MANIFEST_FILENAME} not found`);
     }
     throw err;
   }
@@ -78,7 +67,7 @@ export async function loadAllMemoryStoreConfigs(): Promise<
 
 export async function writeMemoryStoreManifestFromRemote(
   remote: RemoteMemoryStore,
-  localName: string
+  localName: string,
 ): Promise<string> {
   const out: MemoryStoreConfig = {
     name: remote.name,
@@ -94,9 +83,7 @@ export async function writeMemoryStoreManifestFromRemote(
 
 // ---------------- SDK ----------------
 
-export async function listMemoryStores(
-  _includeArchived = false
-): Promise<RemoteMemoryStore[]> {
+export async function listMemoryStores(_includeArchived = false): Promise<RemoteMemoryStore[]> {
   const results: RemoteMemoryStore[] = [];
   for await (const m of anthropic.beta.memoryStores.list({})) {
     results.push(m as unknown as RemoteMemoryStore);
@@ -104,9 +91,7 @@ export async function listMemoryStores(
   return results;
 }
 
-export async function retrieveMemoryStore(
-  id: string
-): Promise<RemoteMemoryStore | null> {
+export async function retrieveMemoryStore(id: string): Promise<RemoteMemoryStore | null> {
   try {
     const m = await anthropic.beta.memoryStores.retrieve(id);
     return m as unknown as RemoteMemoryStore;
@@ -116,9 +101,7 @@ export async function retrieveMemoryStore(
   }
 }
 
-export async function createMemoryStore(
-  config: MemoryStoreConfig
-): Promise<RemoteMemoryStore> {
+export async function createMemoryStore(config: MemoryStoreConfig): Promise<RemoteMemoryStore> {
   const created = await anthropic.beta.memoryStores.create({
     name: config.name,
     description: config.description ?? undefined,
@@ -130,15 +113,12 @@ export async function createMemoryStore(
 export async function updateMemoryStore(
   id: string,
   config: MemoryStoreConfig,
-  remote: RemoteMemoryStore
+  remote: RemoteMemoryStore,
 ): Promise<RemoteMemoryStore> {
   // metadata patch: keys missing locally are sent as null (delete); others are upserted.
   const localMeta = config.metadata ?? {};
   const remoteMeta = remote.metadata ?? {};
-  const allKeys = new Set([
-    ...Object.keys(localMeta),
-    ...Object.keys(remoteMeta),
-  ]);
+  const allKeys = new Set([...Object.keys(localMeta), ...Object.keys(remoteMeta)]);
   const metadataPatch: Record<string, string | null> = {};
   for (const k of allKeys) {
     if (!(k in localMeta)) {
@@ -171,7 +151,7 @@ function nullToUndefined<T>(v: T): T | undefined {
 
 export function memoryStoreFieldDiffs(
   local: MemoryStoreConfig,
-  remote: RemoteMemoryStore
+  remote: RemoteMemoryStore,
 ): FieldDiff[] {
   const diffs: FieldDiff[] = [];
   for (const field of MEMORY_STORE_COMPARE_FIELDS) {

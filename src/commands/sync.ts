@@ -1,9 +1,6 @@
 import path from 'node:path';
 
-import {
-  retrieveAgent,
-  writeAgentYamlFromRemote,
-} from '../lib/agents.js';
+import { retrieveAgent, writeAgentYamlFromRemote } from '../lib/agents.js';
 import { CMAFORM_DIR, STATE_PATH } from '../lib/config.js';
 import {
   listEnvironments,
@@ -23,11 +20,7 @@ import {
   retrieveVault,
   writeVaultManifestFromRemote,
 } from '../lib/vaults.js';
-import {
-  findSkillByDisplayTitle,
-  loadAllSkillConfigs,
-  retrieveSkill,
-} from '../lib/skills.js';
+import { findSkillByDisplayTitle, loadAllSkillConfigs, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 
 export interface SyncOptions {
@@ -70,7 +63,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
 
   if (!hasAnything) {
     process.stdout.write(
-      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id|env_id|vlt_id>` to import.\n'
+      'Both state and local are empty. Run `cmaform pull <agent_id|skill_id|memstore_id|env_id|vlt_id>` to import.\n',
     );
     return 0;
   }
@@ -97,18 +90,15 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     const remote = await retrieveAgent(entry.id);
     if (!remote || remote.archived_at) {
       process.stdout.write(
-        `  [!] skip agent ${JSON.stringify(name)}: remote is archived or missing (id=${entry.id})\n`
+        `  [!] skip agent ${JSON.stringify(name)}: remote is archived or missing (id=${entry.id})\n`,
       );
       agentSkipped++;
       continue;
     }
 
-    const filePath = await writeAgentYamlFromRemote(
-      remote,
-      opts.byId ? null : state
-    );
+    const filePath = await writeAgentYamlFromRemote(remote, opts.byId ? null : state);
     process.stdout.write(
-      `  [+] wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${remote.id}, version=${remote.version})\n`
+      `  [+] wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${remote.id}, version=${remote.version})\n`,
     );
     agentWritten++;
 
@@ -117,11 +107,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
       stateChanged = true;
     }
     const current = state.agents[remote.name];
-    if (
-      !current ||
-      current.id !== remote.id ||
-      current.version !== remote.version
-    ) {
+    if (!current || current.id !== remote.id || current.version !== remote.version) {
       state.agents[remote.name] = { id: remote.id, version: remote.version };
       stateChanged = true;
     }
@@ -133,15 +119,12 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     const remote = await retrieveSkill(entry.id);
     if (!remote) {
       process.stdout.write(
-        `  [!] skip skill ${JSON.stringify(localName)}: remote not found (id=${entry.id})\n`
+        `  [!] skip skill ${JSON.stringify(localName)}: remote not found (id=${entry.id})\n`,
       );
       skillSkipped++;
       continue;
     }
-    if (
-      remote.latest_version !== entry.version ||
-      remote.display_title !== entry.display_title
-    ) {
+    if (remote.latest_version !== entry.version || remote.display_title !== entry.display_title) {
       state.skills[localName] = {
         id: entry.id,
         version: remote.latest_version,
@@ -151,13 +134,13 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
         display_title: remote.display_title,
       };
       process.stdout.write(
-        `  [~] skill metadata updated: ${JSON.stringify(localName)} (version ${entry.version} -> ${remote.latest_version})\n`
+        `  [~] skill metadata updated: ${JSON.stringify(localName)} (version ${entry.version} -> ${remote.latest_version})\n`,
       );
       skillUpdated++;
       stateChanged = true;
     } else {
       process.stdout.write(
-        `  [=] skill up-to-date: ${JSON.stringify(localName)} (version=${entry.version})\n`
+        `  [=] skill up-to-date: ${JSON.stringify(localName)} (version=${entry.version})\n`,
       );
     }
   }
@@ -175,13 +158,13 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
         display_title: remote.display_title,
       };
       process.stdout.write(
-        `  [+] discovered skill: ${JSON.stringify(localName)} (id=${remote.id}, version=${remote.latest_version})\n`
+        `  [+] discovered skill: ${JSON.stringify(localName)} (id=${remote.id}, version=${remote.latest_version})\n`,
       );
       skillDiscovered++;
       stateChanged = true;
     } else {
       process.stdout.write(
-        `  [?] not found on remote: skill ${JSON.stringify(localName)} (display_title=${JSON.stringify(skill.displayTitle)})\n`
+        `  [?] not found on remote: skill ${JSON.stringify(localName)} (display_title=${JSON.stringify(skill.displayTitle)})\n`,
       );
     }
   }
@@ -192,17 +175,14 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     const remote = await retrieveMemoryStore(entry.id);
     if (!remote || remote.archived_at) {
       process.stdout.write(
-        `  [!] skip memory_store ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+        `  [!] skip memory_store ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`,
       );
       memSkipped++;
       continue;
     }
-    const manifestPath = await writeMemoryStoreManifestFromRemote(
-      remote,
-      localName
-    );
+    const manifestPath = await writeMemoryStoreManifestFromRemote(remote, localName);
     process.stdout.write(
-      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`,
     );
     memWritten++;
     if (entry.name !== remote.name) {
@@ -214,17 +194,17 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   for (const [localName, { config }] of memoryStores) {
     if (state.memory_stores[localName]) continue;
     const remotes = await listMemoryStores();
-    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
     if (remote) {
       state.memory_stores[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
-        `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       memDiscovered++;
       stateChanged = true;
     } else {
       process.stdout.write(
-        `  [?] not found on remote: memory_store ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`
+        `  [?] not found on remote: memory_store ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`,
       );
     }
   }
@@ -235,17 +215,14 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     const remote = await retrieveEnvironment(entry.id);
     if (!remote || remote.archived_at) {
       process.stdout.write(
-        `  [!] skip environment ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+        `  [!] skip environment ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`,
       );
       envSkipped++;
       continue;
     }
-    const manifestPath = await writeEnvironmentManifestFromRemote(
-      remote,
-      localName
-    );
+    const manifestPath = await writeEnvironmentManifestFromRemote(remote, localName);
     process.stdout.write(
-      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`,
     );
     envWritten++;
     if (entry.name !== remote.name) {
@@ -256,17 +233,17 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   for (const [localName, { config }] of environments) {
     if (state.environments[localName]) continue;
     const remotes = await listEnvironments();
-    const remote = remotes.find(r => r.name === config.name && !r.archived_at);
+    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
     if (remote) {
       state.environments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
-        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       envDiscovered++;
       stateChanged = true;
     } else {
       process.stdout.write(
-        `  [?] not found on remote: environment ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`
+        `  [?] not found on remote: environment ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`,
       );
     }
   }
@@ -277,14 +254,14 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     const remote = await retrieveVault(entry.id);
     if (!remote || remote.archived_at) {
       process.stdout.write(
-        `  [!] skip vault ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`
+        `  [!] skip vault ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`,
       );
       vaultSkipped++;
       continue;
     }
     const manifestPath = await writeVaultManifestFromRemote(remote, localName);
     process.stdout.write(
-      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`,
     );
     vaultWritten++;
     if (entry.display_name !== remote.display_name) {
@@ -299,7 +276,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     if (state.vaults[localName]) continue;
     const remotes = await listVaults();
     const remote = remotes.find(
-      r => r.display_name === vault.config.display_name && !r.archived_at
+      (r) => r.display_name === vault.config.display_name && !r.archived_at,
     );
     if (remote) {
       state.vaults[localName] = {
@@ -307,22 +284,20 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
         display_name: remote.display_name,
       };
       process.stdout.write(
-        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`
+        `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       vaultDiscovered++;
       stateChanged = true;
     } else {
       process.stdout.write(
-        `  [?] not found on remote: vault ${JSON.stringify(localName)} (display_name=${JSON.stringify(vault.config.display_name)})\n`
+        `  [?] not found on remote: vault ${JSON.stringify(localName)} (display_name=${JSON.stringify(vault.config.display_name)})\n`,
       );
     }
   }
 
   if (stateChanged) {
     await saveState(state);
-    process.stdout.write(
-      `\nState updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`
-    );
+    process.stdout.write(`\nState updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   }
   process.stdout.write(
     `\nSync complete:\n` +
@@ -331,7 +306,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
       `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
       `  environments:  ${envWritten} written, ${envDiscovered} discovered, ${envSkipped} skipped\n` +
       `  vaults:        ${vaultWritten} written, ${vaultDiscovered} discovered, ${vaultSkipped} skipped\n` +
-      `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`
+      `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`,
   );
   return 0;
 }

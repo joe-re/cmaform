@@ -1,30 +1,15 @@
 import path from 'node:path';
 
 import { loadAllAgentConfigs } from '../lib/agents.js';
-import {
-  colorizeMany,
-  formatErrorDetail,
-  formatErrorHeadline,
-} from '../lib/ansi.js';
+import { colorizeMany, formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import {
-  computePlan,
-  filterActionsByTargets,
-  hasChanges,
-} from '../lib/plan.js';
-import {
-  attachDanglingReferenceWarnings,
-  hasDanglingWarnings,
-} from '../lib/warnings.js';
-import {
-  buildResolutionContext,
-  resolveAgentConfig,
-  type ResolvedConfig,
-} from '../lib/resolve.js';
+import { computePlan, filterActionsByTargets, hasChanges } from '../lib/plan.js';
+import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
+import { buildResolutionContext, resolveAgentConfig, type ResolvedConfig } from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
@@ -33,7 +18,7 @@ import { loadAllVaultConfigs } from '../lib/vaults.js';
 export async function cmdApply(
   autoApprove: boolean,
   targets: string[] = [],
-  opts: PrintPlanOptions = {}
+  opts: PrintPlanOptions = {},
 ): Promise<number> {
   const state = await loadState();
   const configs = await loadAllAgentConfigs();
@@ -49,18 +34,15 @@ export async function cmdApply(
   for (const [name, { config }] of configs) {
     const r = await resolveAgentConfig(config, ctx);
     resolutions.set(name, r);
-    for (const m of r.missingAgentRefs)
-      missing.push(`agent "${name}" -> agent "${m}"`);
-    for (const m of r.missingSkillRefs)
-      missing.push(`agent "${name}" -> skill "${m}"`);
-    for (const m of r.idMismatches)
-      idMismatches.push(`agent "${name}" -> ${m}`);
+    for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
+    for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
+    for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
   }
   if (missing.length > 0) {
     process.stderr.write(
       formatErrorHeadline(
-        'the following name-based references could not be resolved (not in state, remote, or local config):'
-      ) + '\n'
+        'the following name-based references could not be resolved (not in state, remote, or local config):',
+      ) + '\n',
     );
     for (const m of missing) {
       process.stderr.write('  ' + formatErrorDetail(m) + '\n');
@@ -70,8 +52,8 @@ export async function cmdApply(
   if (idMismatches.length > 0) {
     process.stderr.write(
       formatErrorHeadline(
-        'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):'
-      ) + '\n'
+        'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):',
+      ) + '\n',
     );
     for (const m of idMismatches) {
       process.stderr.write('  ' + formatErrorDetail(m) + '\n');
@@ -86,7 +68,7 @@ export async function cmdApply(
     memoryStores,
     environments,
     vaults,
-    resolutions
+    resolutions,
   );
 
   let actions = allActions;
@@ -95,27 +77,20 @@ export async function cmdApply(
     if (unmatched.length > 0) {
       process.stderr.write(
         formatErrorHeadline(
-          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map(t => JSON.stringify(t)).join(', ')}`
-        ) + '\n'
+          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map((t) => JSON.stringify(t)).join(', ')}`,
+        ) + '\n',
       );
       return 2;
     }
     actions = filtered;
-    process.stdout.write(
-      `(filter: ${targets.map(t => JSON.stringify(t)).join(', ')})\n`
-    );
+    process.stdout.write(`(filter: ${targets.map((t) => JSON.stringify(t)).join(', ')})\n`);
 
     // Target filtering can drop forward dependencies. Surface them as a
     // hard error so the user adds them to the target list explicitly
     // (rather than failing late inside executeActions).
     const inTarget = new Set<string>();
     for (const a of actions) {
-      if (
-        a.type === 'create' ||
-        a.type === 'update' ||
-        a.type === 'noop' ||
-        a.type === 'delete'
-      ) {
+      if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
         inTarget.add(`agent:${a.name}`);
       } else if (a.type.startsWith('skill_')) {
         inTarget.add(`skill:${(a as { localName: string }).localName}`);
@@ -143,16 +118,15 @@ export async function cmdApply(
     if (droppedDeps.length > 0) {
       process.stderr.write(
         formatErrorHeadline(
-          'target set is missing forward dependencies (they will be created in this run):'
-        ) + '\n'
+          'target set is missing forward dependencies (they will be created in this run):',
+        ) + '\n',
       );
       for (const d of droppedDeps) {
         process.stderr.write('  ' + formatErrorDetail(d) + '\n');
       }
       process.stderr.write(
-        formatErrorDetail(
-          'Add the dependency to your target list, or omit the target filter.'
-        ) + '\n'
+        formatErrorDetail('Add the dependency to your target list, or omit the target filter.') +
+          '\n',
       );
       return 2;
     }
@@ -163,8 +137,7 @@ export async function cmdApply(
   const agentIdToName = new Map<string, string>();
   for (const [name, e] of Object.entries(state.agents)) agentIdToName.set(e.id, name);
   const skillIdToName = new Map<string, string>();
-  for (const [localName, e] of Object.entries(state.skills))
-    skillIdToName.set(e.id, localName);
+  for (const [localName, e] of Object.entries(state.skills)) skillIdToName.set(e.id, localName);
   printPlan(actions, { ...opts, agentIdToName, skillIdToName });
 
   if (!hasChanges(actions)) {
@@ -173,11 +146,7 @@ export async function cmdApply(
     for (const a of actions) {
       if (a.type === 'noop') {
         const existing = state.agents[a.name];
-        if (
-          !existing ||
-          existing.id !== a.id ||
-          existing.version !== a.version
-        ) {
+        if (!existing || existing.id !== a.id || existing.version !== a.version) {
           state.agents[a.name] = { id: a.id, version: a.version };
           stateChanged = true;
         }
@@ -211,11 +180,7 @@ export async function cmdApply(
         }
       } else if (a.type === 'vault_noop') {
         const existing = state.vaults[a.localName];
-        if (
-          !existing ||
-          existing.id !== a.id ||
-          existing.display_name !== a.display_name
-        ) {
+        if (!existing || existing.id !== a.id || existing.display_name !== a.display_name) {
           state.vaults[a.localName] = {
             id: a.id,
             display_name: a.display_name,
@@ -254,7 +219,7 @@ export async function cmdApply(
     await saveState(state);
   }
   process.stdout.write(
-    `\nApply complete. State saved: ${path.relative(process.cwd(), STATE_PATH)}\n`
+    `\nApply complete. State saved: ${path.relative(process.cwd(), STATE_PATH)}\n`,
   );
   return 0;
 }

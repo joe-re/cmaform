@@ -40,7 +40,7 @@ function showHelp(): void {
       `\n` +
       `Resolved paths:\n` +
       `  cmaform dir:   ${CMAFORM_DIR}\n` +
-      `  state file:    ${STATE_PATH}\n`
+      `  state file:    ${STATE_PATH}\n`,
   );
 }
 
@@ -56,8 +56,7 @@ async function main(): Promise<number> {
 
   if (!process.env.ANTHROPIC_API_KEY) {
     process.stderr.write(
-      formatErrorHeadline('ANTHROPIC_API_KEY environment variable is not set') +
-        '\n'
+      formatErrorHeadline('ANTHROPIC_API_KEY environment variable is not set') + '\n',
     );
     return 2;
   }
@@ -65,17 +64,17 @@ async function main(): Promise<number> {
   switch (cmd) {
     case 'plan': {
       const verbose = args.includes('--verbose') || args.includes('-v');
-      const targets = args.filter(a => !a.startsWith('-'));
+      const targets = args.filter((a) => !a.startsWith('-'));
       return cmdPlan(targets, { verbose });
     }
     case 'apply': {
       const autoApprove = args.includes('--yes') || args.includes('-y');
       const verbose = args.includes('--verbose') || args.includes('-v');
-      const targets = args.filter(a => !a.startsWith('-'));
+      const targets = args.filter((a) => !a.startsWith('-'));
       return cmdApply(autoApprove, targets, { verbose });
     }
     case 'pull': {
-      const positional = args.filter(a => !a.startsWith('-'));
+      const positional = args.filter((a) => !a.startsWith('-'));
       if (!positional[0]) {
         showHelp();
         return 2;
@@ -100,8 +99,8 @@ async function main(): Promise<number> {
 }
 
 main()
-  .then(code => process.exit(code))
-  .catch(err => {
+  .then((code) => process.exit(code))
+  .catch((err) => {
     console.error(err);
     process.exit(1);
   });

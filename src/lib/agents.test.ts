@@ -37,9 +37,7 @@ describe('fieldDiffs', () => {
         {
           type: 'bash',
           default_config: { enabled: true, permission_policy: 'ask' },
-          configs: [
-            { name: 'shell', enabled: true, permission_policy: 'ask' },
-          ],
+          configs: [{ name: 'shell', enabled: true, permission_policy: 'ask' }],
         },
       ],
       skills: [{ type: 'custom', skill_id: 'skill_123', version: 'v1' }],

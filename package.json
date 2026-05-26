@@ -3,32 +3,31 @@
   "version": "0.1.0",
   "description": "Terraform-style declarative management for Anthropic Managed Agents, Skills, Memory Stores, Environments, and Vaults.",
   "keywords": [
+    "agents",
     "anthropic",
+    "anthropic-sdk",
     "claude",
     "claude-code",
-    "managed-agents",
-    "agents",
-    "skills",
-    "memory-stores",
-    "environments",
-    "vaults",
-    "mcp",
-    "anthropic-sdk",
-    "terraform",
     "cli",
-    "iac"
+    "environments",
+    "iac",
+    "managed-agents",
+    "mcp",
+    "memory-stores",
+    "skills",
+    "terraform",
+    "vaults"
   ],
+  "homepage": "https://github.com/joe-re/cmaform#readme",
+  "bugs": {
+    "url": "https://github.com/joe-re/cmaform/issues"
+  },
   "license": "MIT",
   "author": "joe-re",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/joe-re/cmaform.git"
   },
-  "bugs": {
-    "url": "https://github.com/joe-re/cmaform/issues"
-  },
-  "homepage": "https://github.com/joe-re/cmaform#readme",
-  "type": "module",
   "bin": {
     "cmaform": "./dist/cli.js"
   },
@@ -40,13 +39,13 @@
     "SECURITY.md",
     "LICENSE"
   ],
-  "engines": {
-    "node": ">=22"
-  },
-  "packageManager": "pnpm@11.3.0",
+  "type": "module",
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
@@ -57,9 +56,15 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.7"
-  }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.3.0"
 }
