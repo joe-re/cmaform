@@ -6,23 +6,27 @@ on:
   pull_request:
 
 jobs:
-  build:
+  lint-test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.3.0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --config.trust-lockfile=true
 
-      - run: pnpm typecheck
+      - run: pnpm run fmt:check
+
+      - run: pnpm run lint
+
+      - run: pnpm run typecheck
 
       - run: pnpm test
 
