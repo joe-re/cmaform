@@ -4,8 +4,8 @@ import path from 'node:path';
 import { listAgentFiles } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
 import { CMAFORM_DIR } from '../lib/config.js';
+import { rewriteYamlRefsToNameForm } from '../lib/fmt.js';
 import { loadState } from '../lib/state.js';
-import type { State } from '../lib/types.js';
 
 /**
  * Rewrite every local agent YAML so that `multiagent.agents[].id` and
@@ -67,52 +67,4 @@ export async function cmdFmt(): Promise<number> {
     `\nfmt complete: rewrote ${refsRewritten} reference(s) across ${filesRewritten} file(s).\n`
   );
   return 0;
-}
-
-/**
- * Pure helper: rewrite a single agent YAML file's text content so that
- * `id: <agentId>` / `skill_id: <skillId>` lines whose ID is tracked in
- * `state` become `name: <localName>`. Returns the new text and the count
- * of rewrites. Exported for unit testing.
- */
-export function rewriteYamlRefsToNameForm(
-  text: string,
-  state: Pick<State, 'agents' | 'skills'>
-): { text: string; changed: number } {
-  const agentRewrites = idLookups('id', state.agents);
-  const skillRewrites = idLookups('skill_id', state.skills);
-
-  let out = text;
-  let changed = 0;
-  for (const { pattern, name } of [...agentRewrites, ...skillRewrites]) {
-    out = out.replace(pattern, (_match, indent, _quote, comment) => {
-      changed++;
-      return `${indent}name: ${name}${comment ?? ''}`;
-    });
-  }
-  return { text: out, changed };
-}
-
-/**
- * Build one regex per ID matching that exact `<yamlKey>: <id>` line (with
- * optional surrounding quotes and an optional trailing comment). Returning
- * one pattern per ID — instead of a single `agent_[A-Za-z0-9]+` regex —
- * lets us reject IDs that aren't tracked in state (e.g. external agents
- * the user references by raw ID without having pulled them locally).
- */
-function idLookups(
-  yamlKey: 'id' | 'skill_id',
-  entries: Record<string, { id: string }>
-): { pattern: RegExp; name: string }[] {
-  return Object.entries(entries).map(([name, entry]) => ({
-    pattern: new RegExp(
-      `^([ \\t]+)${yamlKey}:[ \\t]+(['"]?)${escapeRegex(entry.id)}\\2([ \\t]+#.*)?$`,
-      'gm'
-    ),
-    name,
-  }));
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
