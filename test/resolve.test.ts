@@ -1,4 +1,34 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Safety net: every name lookup in these tests goes through the per-run cache
+// (`ResolutionContext.remoteAgentByName` / `remoteSkillByTitle`), which is
+// pre-populated by `makeCtx`. If a test ever asks `resolveAgentConfig` about
+// a name we didn't pre-cache, the code under test would fall through to the
+// real SDK call — which would either hit the network or fail auth. Mock those
+// two helpers so any such accidental fall-through throws a loud, descriptive
+// error instead.
+vi.mock('../src/lib/agents.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/lib/agents.js')>();
+  return {
+    ...actual,
+    findAgentByName: vi.fn((name: string) => {
+      throw new Error(
+        `findAgentByName(${JSON.stringify(name)}) should not be reached in tests — pre-populate remoteAgentByName in makeCtx().`
+      );
+    }),
+  };
+});
+vi.mock('../src/lib/skills.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/lib/skills.js')>();
+  return {
+    ...actual,
+    findSkillByDisplayTitle: vi.fn((title: string) => {
+      throw new Error(
+        `findSkillByDisplayTitle(${JSON.stringify(title)}) should not be reached in tests — pre-populate remoteSkillByTitle in makeCtx().`
+      );
+    }),
+  };
+});
 
 import {
   extractPendingAgent,

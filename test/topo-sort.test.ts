@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Action } from '../src/lib/plan.js';
-import { topoSortActions } from '../src/lib/topo-sort.js';
+import { actionId, topoSortActions } from '../src/lib/topo-sort.js';
 import type { AgentConfig, LocalSkill } from '../src/lib/types.js';
 
 function createAgent(
@@ -28,17 +28,7 @@ function createSkill(localName: string): Action {
 }
 
 function names(actions: Action[]): string[] {
-  return actions.map(a => {
-    if (
-      a.type === 'create' ||
-      a.type === 'update' ||
-      a.type === 'noop' ||
-      a.type === 'delete'
-    ) {
-      return `agent:${a.name}`;
-    }
-    return `skill:${(a as { localName: string }).localName}`;
-  });
+  return actions.map(actionId);
 }
 
 describe('topoSortActions', () => {
