@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Release Procedure'
+  short_description: 'Run cmaform release checks and publishing steps'
+  default_prompt: 'Use $release-procedure to prepare and publish a cmaform release.'
