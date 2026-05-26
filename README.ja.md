@@ -366,6 +366,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ## 🛠️ 開発
 
 ```bash
+mise install
 pnpm install
 pnpm dev -- --help     # ソースから実行 (tsx)
 pnpm typecheck

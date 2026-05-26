@@ -367,6 +367,7 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 ## 🛠️ Development
 
 ```bash
+mise install
 pnpm install
 pnpm dev -- --help     # run from source (tsx)
 pnpm typecheck
