@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { rewriteYamlRefsToNameForm } from '../src/commands/fmt.js';
+import { rewriteYamlRefsToNameForm } from './fmt.js';
 
 const state = {
   agents: {
-    'spec-qa': { id: 'agent_01NgjvpMaL3DjdtDNEmYxi6c' },
-    'release-prep': { id: 'agent_01QxBzWghACeAzLtk321id1Z' },
+    'spec-qa': { id: 'agent_01NgjvpMaL3DjdtDNEmYxi6c', version: 1 },
+    'release-prep': { id: 'agent_01QxBzWghACeAzLtk321id1Z', version: 1 },
   },
   skills: {
-    'slack-mention-lookup': { id: 'skill_013uPS15B3Kw82NpjH4uNQep' },
+    'slack-mention-lookup': {
+      id: 'skill_013uPS15B3Kw82NpjH4uNQep',
+      version: 'v1',
+      hash: 'h',
+      display_title: 'slack-mention-lookup',
+    },
   },
 };
 

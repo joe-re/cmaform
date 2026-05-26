@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Action } from '../src/lib/plan.js';
-import { actionId, topoSortActions } from '../src/lib/topo-sort.js';
-import type { AgentConfig, LocalSkill } from '../src/lib/types.js';
+import type { Action } from './plan.js';
+import { actionId, topoSortActions } from './topo-sort.js';
 
 function createAgent(
   name: string,
@@ -12,7 +11,7 @@ function createAgent(
   return {
     type: 'create',
     name,
-    config: { name } as AgentConfig,
+    config: { name },
     filePath: `agents/${name}.yaml`,
     forwardAgentDeps,
     forwardSkillDeps,
@@ -23,7 +22,15 @@ function createSkill(localName: string): Action {
   return {
     type: 'skill_create',
     localName,
-    skill: { localName } as unknown as LocalSkill,
+    skill: {
+      localName,
+      dirPath: `skills/${localName}`,
+      skillName: localName,
+      description: `${localName} description`,
+      displayTitle: localName,
+      hash: `${localName}-hash`,
+      files: ['SKILL.md'],
+    },
   };
 }
 

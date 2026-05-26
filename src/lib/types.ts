@@ -1,6 +1,7 @@
 export interface MultiagentRosterEntry {
   type: 'agent' | 'self';
   id?: string;
+  name?: string;
   version?: number;
 }
 

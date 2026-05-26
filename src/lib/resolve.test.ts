@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 // real SDK call — which would either hit the network or fail auth. Mock those
 // two helpers so any such accidental fall-through throws a loud, descriptive
 // error instead.
-vi.mock('../src/lib/agents.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../src/lib/agents.js')>();
+vi.mock('./agents.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('./agents.js')>();
   return {
     ...actual,
     findAgentByName: vi.fn((name: string) => {
@@ -18,8 +18,8 @@ vi.mock('../src/lib/agents.js', async importOriginal => {
     }),
   };
 });
-vi.mock('../src/lib/skills.js', async importOriginal => {
-  const actual = await importOriginal<typeof import('../src/lib/skills.js')>();
+vi.mock('./skills.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('./skills.js')>();
   return {
     ...actual,
     findSkillByDisplayTitle: vi.fn((title: string) => {
@@ -40,14 +40,14 @@ import {
   rewriteSkillRefsToNameForm,
   substitutePendingIds,
   type ResolutionContext,
-} from '../src/lib/resolve.js';
+} from './resolve.js';
 import type {
   AgentConfig,
   LocalSkill,
   RemoteAgent,
   RemoteSkill,
   State,
-} from '../src/lib/types.js';
+} from './types.js';
 
 function emptyState(): State {
   return {
@@ -241,7 +241,17 @@ describe('resolveAgentConfig — skill refs', () => {
   it('produces a forward dep + sentinel when the skill only exists locally', async () => {
     const ctx = makeCtx({
       remoteSkills: { 'my-skill': null },
-      localSkills: { 'my-skill': { localName: 'my-skill' } as LocalSkill },
+      localSkills: {
+        'my-skill': {
+          localName: 'my-skill',
+          dirPath: 'skills/my-skill',
+          skillName: 'my-skill',
+          description: 'my-skill description',
+          displayTitle: 'my-skill',
+          hash: 'my-skill-hash',
+          files: ['SKILL.md'],
+        },
+      },
     });
     const config: AgentConfig = {
       name: 'agent-with-skill',
