@@ -1,15 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import {
-  isMap,
-  isScalar,
-  isSeq,
-  parseDocument,
-  type Node,
-  type YAMLMap,
-} from 'yaml';
-
 import { listAgentFiles } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
 import { CMAFORM_DIR } from '../lib/config.js';
@@ -23,8 +14,14 @@ import { loadState } from '../lib/state.js';
  * untouched (typically Anthropic-provided skills like `xlsx` or external
  * agent IDs that have not been pulled locally yet).
  *
- * Rewrites are applied directly to the parsed YAML Document tree, so
- * user-authored comments and overall key ordering are preserved.
+ * The rewrite is performed as a line-level text substitution on the
+ * original file (NOT a parse → stringify round-trip). This is a deliberate
+ * choice: yaml's serializer cannot reproduce the original line breaks of
+ * folded (`>-`) scalars or the exact quoting / indentation style of
+ * untouched fields, so any round-trip would churn the rest of the file.
+ * The substitution only rewrites lines that match a known agent/skill ID
+ * — Anthropic IDs are unique 24-char base32 randoms, so collisions with
+ * other YAML values are not a concern in practice.
  *
  * One-shot migration helper for repositories that have been managing
  * `multiagent.agents` with hand-copied IDs and now want to switch to the
@@ -45,51 +42,33 @@ export async function cmdFmt(): Promise<number> {
     return 2;
   }
 
-  const agentIdToName = buildIdToNameMap(state.agents);
-  const skillIdToLocalName = buildIdToNameMap(state.skills);
+  const agentRewrites = idLookups('id', state.agents);
+  const skillRewrites = idLookups('skill_id', state.skills);
 
   const files = await listAgentFiles();
   let filesRewritten = 0;
   let refsRewritten = 0;
 
   for (const filePath of files) {
-    const text = await fs.readFile(filePath, 'utf-8');
-    const doc = parseDocument(text);
+    const before = await fs.readFile(filePath, 'utf-8');
+    let after = before;
     let changed = 0;
 
-    const multiagent = doc.get('multiagent', true);
-    if (isMap(multiagent)) {
-      const agents = multiagent.get('agents', true);
-      if (isSeq(agents)) {
-        for (const item of agents.items) {
-          if (!isMap(item)) continue;
-          if (getStringField(item, 'type') !== 'agent') continue;
-          const id = getStringField(item, 'id');
-          if (!id) continue;
-          const name = agentIdToName.get(id);
-          if (!name) continue;
-          replaceKey(item, 'id', 'name', name);
-          changed++;
-        }
-      }
-    }
-
-    const skills = doc.get('skills', true);
-    if (isSeq(skills)) {
-      for (const item of skills.items) {
-        if (!isMap(item)) continue;
-        if (getStringField(item, 'type') !== 'custom') continue;
-        const id = getStringField(item, 'skill_id');
-        if (!id) continue;
-        const localName = skillIdToLocalName.get(id);
-        if (!localName) continue;
-        replaceKey(item, 'skill_id', 'name', localName);
+    for (const { pattern, name } of agentRewrites) {
+      after = after.replace(pattern, (_match, indent, _quote, comment) => {
         changed++;
-      }
+        return `${indent}name: ${name}${comment ?? ''}`;
+      });
+    }
+    for (const { pattern, name } of skillRewrites) {
+      after = after.replace(pattern, (_match, indent, _quote, comment) => {
+        changed++;
+        return `${indent}name: ${name}${comment ?? ''}`;
+      });
     }
 
     if (changed === 0) continue;
-    await fs.writeFile(filePath, String(doc), 'utf-8');
+    await fs.writeFile(filePath, after, 'utf-8');
     process.stdout.write(
       `  [~] ${path.relative(CMAFORM_DIR, filePath)}: rewrote ${changed} reference(s)\n`
     );
@@ -109,38 +88,26 @@ export async function cmdFmt(): Promise<number> {
   return 0;
 }
 
-function buildIdToNameMap(
-  entries: Record<string, { id: string }>
-): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const [name, entry] of Object.entries(entries)) m.set(entry.id, name);
-  return m;
-}
-
-function getStringField(map: YAMLMap, key: string): string | null {
-  const node = map.get(key, true) as Node | undefined;
-  if (isScalar(node) && typeof node.value === 'string') return node.value;
-  return null;
-}
-
 /**
- * Rewrite a `<oldKey>: <oldValue>` Pair in a YAMLMap to `<newKey>: <newValue>`
- * by mutating the existing key / value Scalar nodes in place. Mutating in
- * place — rather than constructing a fresh Pair — preserves the Pair's
- * position in the map and any comments attached to the original Pair or its
- * surrounding Scalars (line-leading `commentBefore`, end-of-line `comment`).
+ * Build one regex per ID matching that exact `<yamlKey>: <id>` line (with
+ * optional surrounding quotes and an optional trailing comment). Returning
+ * one pattern per ID — instead of a single `agent_[A-Za-z0-9]+` regex —
+ * lets us reject IDs that aren't tracked in state (e.g. external agents
+ * the user references by raw ID without having pulled them locally).
  */
-function replaceKey(
-  map: YAMLMap,
-  oldKey: string,
-  newKey: string,
-  newValue: string
-): void {
-  const pair = map.items.find(p => {
-    const k = isScalar(p.key) ? p.key.value : p.key;
-    return k === oldKey;
-  });
-  if (!pair) return;
-  if (isScalar(pair.key)) pair.key.value = newKey;
-  if (isScalar(pair.value)) pair.value.value = newValue;
+function idLookups(
+  yamlKey: 'id' | 'skill_id',
+  entries: Record<string, { id: string }>
+): { pattern: RegExp; name: string }[] {
+  return Object.entries(entries).map(([name, entry]) => ({
+    pattern: new RegExp(
+      `^([ \\t]+)${yamlKey}:[ \\t]+(['"]?)${escapeRegex(entry.id)}\\2([ \\t]+#.*)?$`,
+      'gm'
+    ),
+    name,
+  }));
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
