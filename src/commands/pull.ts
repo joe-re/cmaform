@@ -23,7 +23,19 @@ import { hashSkillDir, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 import { retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
 
-export async function cmdPull(query: string): Promise<number> {
+export interface PullOptions {
+  /**
+   * When true, keep `multiagent.agents[].id` / `skills[].skill_id` references
+   * as raw IDs in the written YAML instead of rewriting them to the `name:`
+   * form. Useful for matching pre-name-resolution YAML byte-for-byte.
+   */
+  byId?: boolean;
+}
+
+export async function cmdPull(
+  query: string,
+  opts: PullOptions = {}
+): Promise<number> {
   if (query.startsWith('skill_')) {
     return cmdPullSkill(query);
   }
@@ -57,7 +69,10 @@ export async function cmdPull(query: string): Promise<number> {
   // Pre-register so that ref-rewriting can see this agent's own state (rare,
   // but harmless if multiagent.agents references itself).
   state.agents[agent.name] = { id: agent.id, version: agent.version };
-  const filePath = await writeAgentYamlFromRemote(agent, state);
+  const filePath = await writeAgentYamlFromRemote(
+    agent,
+    opts.byId ? null : state
+  );
   process.stderr.write(
     `==> wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${agent.id}, version=${agent.version})\n`
   );

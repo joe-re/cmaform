@@ -45,6 +45,7 @@ export async function cmdApply(
   const ctx = buildResolutionContext(state, configs, skills);
   const resolutions = new Map<string, ResolvedConfig>();
   const missing: string[] = [];
+  const idMismatches: string[] = [];
   for (const [name, { config }] of configs) {
     const r = await resolveAgentConfig(config, ctx);
     resolutions.set(name, r);
@@ -52,6 +53,8 @@ export async function cmdApply(
       missing.push(`agent "${name}" -> agent "${m}"`);
     for (const m of r.missingSkillRefs)
       missing.push(`agent "${name}" -> skill "${m}"`);
+    for (const m of r.idMismatches)
+      idMismatches.push(`agent "${name}" -> ${m}`);
   }
   if (missing.length > 0) {
     process.stderr.write(
@@ -60,6 +63,17 @@ export async function cmdApply(
       ) + '\n'
     );
     for (const m of missing) {
+      process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+    }
+    return 2;
+  }
+  if (idMismatches.length > 0) {
+    process.stderr.write(
+      formatErrorHeadline(
+        'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):'
+      ) + '\n'
+    );
+    for (const m of idMismatches) {
       process.stderr.write('  ' + formatErrorDetail(m) + '\n');
     }
     return 2;
@@ -146,7 +160,12 @@ export async function cmdApply(
 
   actions = topoSortActions(actions);
   attachDanglingReferenceWarnings(actions, resolutions);
-  printPlan(actions, opts);
+  const agentIdToName = new Map<string, string>();
+  for (const [name, e] of Object.entries(state.agents)) agentIdToName.set(e.id, name);
+  const skillIdToName = new Map<string, string>();
+  for (const [localName, e] of Object.entries(state.skills))
+    skillIdToName.set(e.id, localName);
+  printPlan(actions, { ...opts, agentIdToName, skillIdToName });
 
   if (!hasChanges(actions)) {
     // No remote operations, but refresh stale state with noop id/version values.

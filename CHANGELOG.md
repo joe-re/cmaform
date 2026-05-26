@@ -7,6 +7,25 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- `cmaform fmt` subcommand: rewrite `multiagent.agents[].id` /
+  `skills[].skill_id` in local YAML files to the name form using
+  `cmaform.state.json` for the id → name lookup. One-shot migration
+  helper for repositories that previously hand-copied raw IDs.
+- `--by-id` flag for `cmaform pull` / `cmaform sync`: keep raw IDs in
+  `multiagent.agents[]` / `skills[]` when writing agent YAML, instead
+  of rewriting to the name form. Escape hatch for users who want the
+  pre-name-resolution output exactly.
+- Plan diff now annotates known IDs with a `# = <localName>` comment
+  in the rendered YAML, so readers can tell at a glance which
+  sub-agent or skill an opaque ID refers to.
+- Pin assertion: when a `multiagent.agents[]` / `skills[]` entry writes
+  both `name:` and `id:` (or `skill_id:`), cmaform resolves the name
+  and verifies it matches the pinned ID. Mismatches abort `plan` /
+  `apply` with a clear error. Useful as a safety net during migration
+  from id-based to name-based references.
+
 ## [0.1.0] - 2026-05-25
 
 Initial public release.

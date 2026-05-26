@@ -145,6 +145,12 @@ export interface ResolvedConfig {
   missingAgentRefs: string[];
   /** Name-based skill refs that could not be resolved anywhere — fatal. */
   missingSkillRefs: string[];
+  /**
+   * Assertion failures from entries that wrote both `name` and `id` (or
+   * `skill_id`). Each entry is `<refKind> "<name>" pinned id=<written>,
+   * resolved=<actual>`. Surfaced to the caller, who should fail the plan.
+   */
+  idMismatches: string[];
 }
 
 /**
@@ -161,6 +167,7 @@ export async function resolveAgentConfig(
   const forwardSkillDeps: string[] = [];
   const missingAgentRefs: string[] = [];
   const missingSkillRefs: string[] = [];
+  const idMismatches: string[] = [];
 
   const resolved: AgentConfig = { ...config };
 
@@ -169,6 +176,27 @@ export async function resolveAgentConfig(
     const newAgents: unknown[] = [];
     for (const entry of resolved.multiagent.agents) {
       const e = entry as unknown as Record<string, unknown> | null;
+      // Pin-form: both `name` and `id` provided. Resolve the name and assert
+      // the resolved id matches the pinned one. Useful as a safety net during
+      // migration from id-based to name-based references.
+      if (
+        e &&
+        typeof e === 'object' &&
+        e.type === 'agent' &&
+        typeof e.id === 'string' &&
+        typeof e.name === 'string'
+      ) {
+        const res = await resolveAgentName(e.name, ctx);
+        if (res.kind === 'resolved' && res.id !== e.id) {
+          idMismatches.push(
+            `agent "${e.name}" pinned id=${e.id}, resolved id=${res.id}`
+          );
+        }
+        // Pass through the original id form. Mismatch (if any) is surfaced
+        // via idMismatches; the caller decides whether to fail.
+        newAgents.push(entry);
+        continue;
+      }
       if (
         e &&
         typeof e === 'object' &&
@@ -209,6 +237,23 @@ export async function resolveAgentConfig(
     const newSkills: unknown[] = [];
     for (const entry of resolved.skills) {
       const e = entry as unknown as Record<string, unknown> | null;
+      // Pin-form: both `name` and `skill_id` provided (custom skills only).
+      if (
+        e &&
+        typeof e === 'object' &&
+        e.type === 'custom' &&
+        typeof e.skill_id === 'string' &&
+        typeof e.name === 'string'
+      ) {
+        const res = await resolveSkillName(e.name, ctx);
+        if (res.kind === 'resolved' && res.id !== e.skill_id) {
+          idMismatches.push(
+            `skill "${e.name}" pinned skill_id=${e.skill_id}, resolved skill_id=${res.id}`
+          );
+        }
+        newSkills.push(entry);
+        continue;
+      }
       if (
         e &&
         typeof e === 'object' &&
@@ -247,6 +292,7 @@ export async function resolveAgentConfig(
     forwardSkillDeps,
     missingAgentRefs,
     missingSkillRefs,
+    idMismatches,
   };
 }
 

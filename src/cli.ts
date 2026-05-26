@@ -6,6 +6,7 @@
  */
 
 import { cmdApply } from './commands/apply.js';
+import { cmdFmt } from './commands/fmt.js';
 import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
 import { cmdPlan } from './commands/plan.js';
@@ -18,18 +19,20 @@ function showHelp(): void {
   process.stderr.write(
     `cmaform — Terraform-style management for Anthropic Managed Agents / Skills / Memory Stores / Environments / Vaults.\n\n` +
       `Usage:\n` +
-      `  cmaform pull <agent_id>           # import a remote agent (writes YAML + state)\n` +
+      `  cmaform pull <agent_id> [--by-id]\n` +
+      `                                    # import a remote agent (writes YAML + state); --by-id keeps raw IDs in multiagent/skills refs\n` +
       `  cmaform pull <skill_id>           # import a remote skill into state only (SKILL.md is not generated)\n` +
       `  cmaform pull <memstore_id>        # import a remote memory_store (writes manifest.yaml + state)\n` +
       `  cmaform pull <env_id>             # import a remote environment (writes manifest.yaml + state)\n` +
       `  cmaform pull <vlt_id>             # import a remote vault (writes manifest.yaml + state; credentials are not managed by cmaform yet)\n` +
-      `  cmaform sync                      # rewrite YAML for every entry in state from remote\n` +
+      `  cmaform sync [--by-id]            # rewrite YAML for every entry in state from remote; --by-id keeps raw IDs in multiagent/skills refs\n` +
       `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
       `  cmaform plan [--verbose|-v] [target...]\n` +
       `                                    # show diff (target = agents/skills/memory_stores/environments/vaults or resource name)\n` +
       `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +
+      `  cmaform fmt                       # rewrite multiagent.agents[].id / skills[].skill_id in local YAML to the name form using state\n` +
       `\n` +
       `Environment:\n` +
       `  ANTHROPIC_API_KEY                 (required) Anthropic API key\n` +
@@ -71,18 +74,25 @@ async function main(): Promise<number> {
       const targets = args.filter(a => !a.startsWith('-'));
       return cmdApply(autoApprove, targets, { verbose });
     }
-    case 'pull':
-      if (!args[0]) {
+    case 'pull': {
+      const positional = args.filter(a => !a.startsWith('-'));
+      if (!positional[0]) {
         showHelp();
         return 2;
       }
-      return cmdPull(args[0]);
+      const byId = args.includes('--by-id');
+      return cmdPull(positional[0], { byId });
+    }
     case 'init':
       return cmdInit();
-    case 'sync':
-      return cmdSync();
+    case 'sync': {
+      const byId = args.includes('--by-id');
+      return cmdSync({ byId });
+    }
     case 'list':
       return cmdList();
+    case 'fmt':
+      return cmdFmt();
     default:
       showHelp();
       return 2;

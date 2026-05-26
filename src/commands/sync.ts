@@ -30,6 +30,16 @@ import {
 } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
 
+export interface SyncOptions {
+  /**
+   * When true, keep `multiagent.agents[].id` / `skills[].skill_id` references
+   * as raw IDs in the rewritten YAML instead of switching them to the `name:`
+   * form. Provided as an escape hatch for users who want to preserve the
+   * previous (raw-ID) sync output exactly.
+   */
+  byId?: boolean;
+}
+
 /**
  * Re-fetch every agent / skill / memory_store recorded in state from remote.
  *
@@ -40,7 +50,7 @@ import { loadState, saveState } from '../lib/state.js';
  * Use cases: bulk-generate YAML in an environment that received only a shared state file,
  * or rebuild after accidentally deleting local YAML.
  */
-export async function cmdSync(): Promise<number> {
+export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   const state = await loadState();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
@@ -93,7 +103,10 @@ export async function cmdSync(): Promise<number> {
       continue;
     }
 
-    const filePath = await writeAgentYamlFromRemote(remote, state);
+    const filePath = await writeAgentYamlFromRemote(
+      remote,
+      opts.byId ? null : state
+    );
     process.stdout.write(
       `  [+] wrote ${path.relative(CMAFORM_DIR, filePath)} (id=${remote.id}, version=${remote.version})\n`
     );
