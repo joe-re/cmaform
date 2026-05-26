@@ -60,9 +60,7 @@ export async function cmdFmt(): Promise<number> {
   }
 
   if (filesRewritten === 0) {
-    process.stdout.write(
-      'No changes — every agent YAML already uses the name form.\n'
-    );
+    process.stdout.write('No changes.\n');
     return 0;
   }
   process.stdout.write(
