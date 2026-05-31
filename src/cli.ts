@@ -1,5 +1,5 @@
 /**
- * cmaform — Terraform-style management CLI for Anthropic Managed Agents.
+ * cmaform — Terraform-style management CLI for Claude Managed Agents.
  *
  * This file is a thin dispatcher. Subcommand implementations live under
  * `src/commands/` and their shared helpers under `src/lib/`.
@@ -17,7 +17,7 @@ import { CMAFORM_DIR, STATE_PATH } from './lib/config.js';
 
 function showHelp(): void {
   process.stderr.write(
-    `cmaform — Terraform-style management for Anthropic Managed Agents / Skills / Memory Stores / Environments / Vaults.\n\n` +
+    `cmaform — Terraform-style management for Claude Managed Agents and related resources.\n\n` +
       `Usage:\n` +
       `  cmaform pull <agent_id> [--by-id]\n` +
       `                                    # import a remote agent (writes YAML + state); --by-id keeps raw IDs in multiagent/skills refs\n` +

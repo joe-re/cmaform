@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-01
+
+### Changed
+
+- Updated README and package metadata to use Anthropic's official
+  `Claude Managed Agents` terminology.
+
+### Fixed
+
+- Fixed resolution of `latest` sub-agent versions so referenced agents use the
+  current remote version when planning and applying changes.
+
 ## [0.2.0] - 2026-05-27
 
 ### Added
@@ -43,7 +55,7 @@ Initial public release.
 
 ### Added
 
-- Terraform-style CLI (`cmaform`) for managing Anthropic Managed Agents
+- Terraform-style CLI (`cmaform`) for managing Claude Managed Agents
   declaratively from a local directory of YAML files.
 - Subcommands: `pull`, `plan`, `apply`, `sync`, `init`, `list`.
 - Five managed resource types:
@@ -94,6 +106,7 @@ Initial public release.
 - `dist/cli.js.map` is intentionally not shipped in the npm tarball.
 - `pnpm audit` clean against `@anthropic-ai/sdk` 0.98.0 and `yaml` 2.x.
 
-[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/joe-re/cmaform/releases/tag/v0.2.1
 [0.2.0]: https://github.com/joe-re/cmaform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joe-re/cmaform/releases/tag/v0.1.0
