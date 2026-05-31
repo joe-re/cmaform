@@ -161,8 +161,19 @@ export async function computePlan(
   environments: Map<string, { config: EnvironmentConfig; dirPath: string }>,
   vaults: Map<string, LocalVault>,
   resolutions: Map<string, ResolvedConfig>,
+  opts: { targets?: string[] } = {},
 ): Promise<Action[]> {
   const actions: Action[] = [];
+  const dynamicLatestScope = agentNamesSelectedByTargets(configs, opts.targets ?? []);
+  const pendingAgentActions: Array<{
+    name: string;
+    filePath: string;
+    config: AgentConfig;
+    remote: Awaited<ReturnType<typeof resolveRemote>>;
+    forwardAgentDeps: string[];
+    forwardSkillDeps: string[];
+    latestAgentVersionRefs: { name: string; id: string; index?: number }[];
+  }> = [];
 
   // ----- agents -----
   for (const [name, { filePath }] of configs) {
@@ -172,38 +183,85 @@ export async function computePlan(
     const resolvedConfig = resolution?.config ?? configs.get(name)!.config;
     const forwardAgentDeps = resolution?.forwardAgentDeps ?? [];
     const forwardSkillDeps = resolution?.forwardSkillDeps ?? [];
+    const latestAgentVersionRefs = resolution?.latestAgentVersionRefs ?? [];
 
     const remote = await resolveRemote(name, state);
-    if (!remote || remote.archived_at) {
+    pendingAgentActions.push({
+      name,
+      filePath,
+      config: resolvedConfig,
+      remote,
+      forwardAgentDeps,
+      forwardSkillDeps,
+      latestAgentVersionRefs,
+    });
+  }
+
+  const changedAgentNames = new Set<string>();
+  for (const pending of pendingAgentActions) {
+    if (!pending.remote || pending.remote.archived_at) {
+      if (dynamicLatestScope.has(pending.name)) changedAgentNames.add(pending.name);
+      continue;
+    }
+    if (fieldDiffs(pending.config, pending.remote).length > 0) {
+      if (dynamicLatestScope.has(pending.name)) changedAgentNames.add(pending.name);
+    }
+  }
+  let propagated = true;
+  while (propagated) {
+    propagated = false;
+    for (const pending of pendingAgentActions) {
+      if (changedAgentNames.has(pending.name)) continue;
+      if (pending.latestAgentVersionRefs.some((ref) => changedAgentNames.has(ref.name))) {
+        changedAgentNames.add(pending.name);
+        propagated = true;
+      }
+    }
+  }
+
+  for (const pending of pendingAgentActions) {
+    const dynamicAgentDeps = pending.latestAgentVersionRefs.filter((ref) =>
+      changedAgentNames.has(ref.name),
+    );
+    const config =
+      dynamicAgentDeps.length > 0
+        ? markLatestAgentVersions(pending.config, dynamicAgentDeps)
+        : pending.config;
+    const forwardAgentDeps = [
+      ...pending.forwardAgentDeps,
+      ...dynamicAgentDeps.map((ref) => ref.name),
+    ];
+
+    if (!pending.remote || pending.remote.archived_at) {
       actions.push({
         type: 'create',
-        name,
-        config: resolvedConfig,
-        filePath,
+        name: pending.name,
+        config,
+        filePath: pending.filePath,
         forwardAgentDeps,
-        forwardSkillDeps,
+        forwardSkillDeps: pending.forwardSkillDeps,
       });
       continue;
     }
-    const diffs = fieldDiffs(resolvedConfig, remote);
+    const diffs = fieldDiffs(config, pending.remote);
     if (diffs.length === 0) {
       actions.push({
         type: 'noop',
-        name,
-        id: remote.id,
-        version: remote.version,
+        name: pending.name,
+        id: pending.remote.id,
+        version: pending.remote.version,
       });
     } else {
       actions.push({
         type: 'update',
-        name,
-        id: remote.id,
-        config: resolvedConfig,
-        filePath,
-        currentVersion: remote.version,
+        name: pending.name,
+        id: pending.remote.id,
+        config,
+        filePath: pending.filePath,
+        currentVersion: pending.remote.version,
         diffs,
         forwardAgentDeps,
-        forwardSkillDeps,
+        forwardSkillDeps: pending.forwardSkillDeps,
       });
     }
   }
@@ -362,6 +420,51 @@ export async function computePlan(
   }
 
   return actions;
+}
+
+function agentNamesSelectedByTargets(
+  configs: Map<string, { config: AgentConfig; filePath: string }>,
+  targets: string[],
+): Set<string> {
+  if (targets.length === 0) return new Set(configs.keys());
+
+  const selected = new Set<string>();
+  for (const target of targets) {
+    const kind = RESOURCE_KIND_ALIASES[target];
+    if (kind === 'agent') {
+      for (const name of configs.keys()) selected.add(name);
+    } else if (!kind && configs.has(target)) {
+      selected.add(target);
+    }
+  }
+  return selected;
+}
+
+function markLatestAgentVersions(
+  config: AgentConfig,
+  refs: { name: string; id: string; index?: number }[],
+): AgentConfig {
+  if (!config.multiagent || !Array.isArray(config.multiagent.agents)) return config;
+
+  const latestIndices = new Set(
+    refs.flatMap((ref) => (typeof ref.index === 'number' ? [ref.index] : [])),
+  );
+  const latestIds = new Set(refs.map((ref) => ref.id));
+  return {
+    ...config,
+    multiagent: {
+      ...config.multiagent,
+      agents: config.multiagent.agents.map((entry, idx) => {
+        if (entry.type !== 'agent' || typeof entry.id !== 'string') return entry;
+        if (latestIndices.size > 0) {
+          if (!latestIndices.has(idx)) return entry;
+          return { ...entry, version: 'latest' };
+        }
+        if (!latestIds.has(entry.id)) return entry;
+        return { ...entry, version: 'latest' };
+      }),
+    },
+  };
 }
 
 // ---------------- target filtering ----------------

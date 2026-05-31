@@ -11,6 +11,7 @@ function resolved(config: ResolvedConfig['config']): ResolvedConfig {
     forwardSkillDeps: [],
     missingAgentRefs: [],
     missingSkillRefs: [],
+    latestAgentVersionRefs: [],
     idMismatches: [],
   };
 }

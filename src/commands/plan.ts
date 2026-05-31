@@ -68,6 +68,7 @@ export async function cmdPlan(
     environments,
     vaults,
     resolutions,
+    { targets },
   );
 
   let actions = allActions;
