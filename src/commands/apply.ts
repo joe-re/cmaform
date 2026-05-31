@@ -69,6 +69,7 @@ export async function cmdApply(
     environments,
     vaults,
     resolutions,
+    { targets },
   );
 
   let actions = allActions;

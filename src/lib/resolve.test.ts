@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Safety net: every name lookup in these tests goes through the per-run cache
 // (`ResolutionContext.remoteAgentByName` / `remoteSkillByTitle`), which is
@@ -7,13 +7,16 @@ import { describe, expect, it, vi } from 'vitest';
 // real SDK call — which would either hit the network or fail auth. Mock those
 // two helpers so any such accidental fall-through throws a loud, descriptive
 // error instead.
-vi.mock('./agents.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./agents.js')>();
+vi.mock('./agents.js', () => {
   return {
-    ...actual,
     findAgentByName: vi.fn((name: string) => {
       throw new Error(
         `findAgentByName(${JSON.stringify(name)}) should not be reached in tests — pre-populate remoteAgentByName in makeCtx().`,
+      );
+    }),
+    retrieveAgent: vi.fn((id: string) => {
+      throw new Error(
+        `retrieveAgent(${JSON.stringify(id)}) should not be reached in tests — mock retrieveAgent explicitly when resolving raw IDs.`,
       );
     }),
   };
@@ -30,6 +33,7 @@ vi.mock('./skills.js', async (importOriginal) => {
   };
 });
 
+import { retrieveAgent } from './agents.js';
 import {
   extractPendingAgent,
   extractPendingSkill,
@@ -42,6 +46,11 @@ import {
   type ResolutionContext,
 } from './resolve.js';
 import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
+
+beforeEach(() => {
+  vi.mocked(retrieveAgent).mockReset();
+  vi.mocked(retrieveAgent).mockResolvedValue(null);
+});
 
 function emptyState(): State {
   return {
@@ -79,6 +88,7 @@ describe('resolveAgentConfig — agent refs', () => {
         ...emptyState(),
         agents: { 'spec-qa': { id: 'agent_real_001', version: 1 } },
       },
+      remoteAgents: { 'spec-qa': null },
     });
     const config: AgentConfig = {
       name: 'coordinator',
@@ -91,11 +101,13 @@ describe('resolveAgentConfig — agent refs', () => {
     expect(r.missingAgentRefs).toEqual([]);
     expect(r.forwardAgentDeps).toEqual([]);
     expect(r.idMismatches).toEqual([]);
-    expect(r.config.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_real_001' }]);
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 1 },
+    ]);
   });
 
   it('resolves a name via the pre-cached remote lookup (no SDK call needed)', async () => {
-    const remote = { id: 'agent_remote_002' } as RemoteAgent;
+    const remote = { id: 'agent_remote_002', version: 4 } as RemoteAgent;
     const ctx = makeCtx({ remoteAgents: { 'release-prep': remote } });
     const config: AgentConfig = {
       name: 'coordinator',
@@ -105,8 +117,109 @@ describe('resolveAgentConfig — agent refs', () => {
       },
     };
     const r = await resolveAgentConfig(config, ctx);
-    expect(r.config.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_remote_002' }]);
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_remote_002', version: 4 },
+    ]);
     expect(r.forwardAgentDeps).toEqual([]);
+  });
+
+  it('resolves explicit latest to a numeric agent version', async () => {
+    const ctx = makeCtx({
+      state: {
+        ...emptyState(),
+        agents: { 'spec-qa': { id: 'agent_real_001', version: 10 } },
+      },
+      remoteAgents: { 'spec-qa': null },
+    });
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', name: 'spec-qa', version: 'latest' }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 10 },
+    ]);
+  });
+
+  it('resolves latest from remote when state has a stale tracked version', async () => {
+    const ctx = makeCtx({
+      state: {
+        ...emptyState(),
+        agents: { 'spec-qa': { id: 'agent_real_001', version: 10 } },
+      },
+      remoteAgents: { 'spec-qa': { id: 'agent_real_001', version: 12 } as RemoteAgent },
+    });
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', name: 'spec-qa', version: 'latest' }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 12 },
+    ]);
+  });
+
+  it('resolves latest from remote by tracked id when name lookup misses', async () => {
+    vi.mocked(retrieveAgent).mockResolvedValueOnce({
+      id: 'agent_real_001',
+      version: 12,
+      name: 'renamed-spec-qa',
+      archived_at: null,
+    });
+    const ctx = makeCtx({
+      state: {
+        ...emptyState(),
+        agents: { 'spec-qa': { id: 'agent_real_001', version: 10 } },
+      },
+      remoteAgents: { 'spec-qa': null },
+    });
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', name: 'spec-qa', version: 'latest' }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(retrieveAgent).toHaveBeenCalledWith('agent_real_001');
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 12 },
+    ]);
+  });
+
+  it('keeps an explicit numeric agent version pinned', async () => {
+    const ctx = makeCtx({
+      state: {
+        ...emptyState(),
+        agents: { 'spec-qa': { id: 'agent_real_001', version: 10 } },
+      },
+      remoteAgents: { 'spec-qa': null },
+    });
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', name: 'spec-qa', version: 3 }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 3 },
+    ]);
   });
 
   it('produces a forward dep + sentinel when the name only exists locally', async () => {
@@ -157,12 +270,62 @@ describe('resolveAgentConfig — agent refs', () => {
     expect(r.idMismatches).toEqual([]);
   });
 
+  it('resolves raw-id latest agent versions from remote by id', async () => {
+    vi.mocked(retrieveAgent).mockResolvedValueOnce({
+      id: 'agent_untracked_001',
+      version: 7,
+      name: 'untracked-agent',
+      archived_at: null,
+    });
+    const ctx = makeCtx();
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', id: 'agent_untracked_001', version: 'latest' }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(retrieveAgent).toHaveBeenCalledWith('agent_untracked_001');
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_untracked_001', version: 7 },
+    ]);
+    expect(r.latestAgentVersionRefs).toEqual([]);
+  });
+
+  it('fills omitted id-only agent versions from state when the id is tracked', async () => {
+    const ctx = makeCtx({
+      state: {
+        ...emptyState(),
+        agents: { 'spec-qa': { id: 'agent_real_001', version: 10 } },
+      },
+      remoteAgents: { 'spec-qa': null },
+    });
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', id: 'agent_real_001' }],
+      },
+    };
+
+    const r = await resolveAgentConfig(config, ctx);
+
+    expect(r.config.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_real_001', version: 10 },
+    ]);
+    expect(r.latestAgentVersionRefs).toEqual([{ name: 'spec-qa', id: 'agent_real_001', index: 0 }]);
+  });
+
   it('records an idMismatch when name+id pin-form disagrees with the resolved id', async () => {
     const ctx = makeCtx({
       state: {
         ...emptyState(),
         agents: { 'spec-qa': { id: 'agent_real_001', version: 1 } },
       },
+      remoteAgents: { 'spec-qa': null },
     });
     const config: AgentConfig = {
       name: 'coordinator',
@@ -184,6 +347,7 @@ describe('resolveAgentConfig — agent refs', () => {
         ...emptyState(),
         agents: { 'spec-qa': { id: 'agent_real_001', version: 1 } },
       },
+      remoteAgents: { 'spec-qa': null },
     });
     const config: AgentConfig = {
       name: 'coordinator',
@@ -261,8 +425,11 @@ describe('substitutePendingIds', () => {
       config,
       new Map([['spec-qa', 'agent_just_created']]),
       new Map([['my-skill', 'skill_just_created']]),
+      new Map([['spec-qa', 1]]),
     );
-    expect(substituted.multiagent?.agents).toEqual([{ type: 'agent', id: 'agent_just_created' }]);
+    expect(substituted.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_just_created', version: 1 },
+    ]);
     expect(substituted.skills).toEqual([{ type: 'custom', skill_id: 'skill_just_created' }]);
   });
 
@@ -275,6 +442,27 @@ describe('substitutePendingIds', () => {
       },
     };
     expect(() => substitutePendingIds(config, new Map(), new Map())).toThrow(/spec-qa/);
+  });
+
+  it('replaces latest agent versions for existing ids after dependency updates', () => {
+    const config: AgentConfig = {
+      name: 'coordinator',
+      multiagent: {
+        type: 'coordinator',
+        agents: [{ type: 'agent', id: 'agent_updated', version: 'latest' }],
+      },
+    };
+
+    const substituted = substitutePendingIds(
+      config,
+      new Map([['spec-qa', 'agent_updated']]),
+      new Map(),
+      new Map([['spec-qa', 11]]),
+    );
+
+    expect(substituted.multiagent?.agents).toEqual([
+      { type: 'agent', id: 'agent_updated', version: 11 },
+    ]);
   });
 });
 

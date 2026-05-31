@@ -1,4 +1,4 @@
-import { findAgentByName } from './agents.js';
+import { findAgentByName, retrieveAgent } from './agents.js';
 import { findSkillByDisplayTitle } from './skills.js';
 import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
 
@@ -72,7 +72,7 @@ export function extractPendingSkill(v: unknown): string | null {
 // ---------------- single-name resolution ----------------
 
 export type AgentResolution =
-  | { kind: 'resolved'; id: string }
+  | { kind: 'resolved'; id: string; version: number }
   | { kind: 'forward'; name: string; sentinel: string }
   | { kind: 'missing' };
 
@@ -81,22 +81,93 @@ export async function resolveAgentName(
   ctx: ResolutionContext,
 ): Promise<AgentResolution> {
   const tracked = ctx.state.agents[name];
-  if (tracked) return { kind: 'resolved', id: tracked.id };
-
-  let remote: RemoteAgent | null;
-  if (ctx.remoteAgentByName.has(name)) {
-    remote = ctx.remoteAgentByName.get(name)!;
-  } else {
-    remote = await findAgentByName(name);
-    ctx.remoteAgentByName.set(name, remote);
+  if (tracked) {
+    const remote = await findRemoteAgentByName(name, ctx);
+    if (!remote || remote.id !== tracked.id) {
+      const byId = await retrieveAgent(tracked.id);
+      if (byId && !byId.archived_at) {
+        return { kind: 'resolved', id: tracked.id, version: byId.version };
+      }
+    }
+    return {
+      kind: 'resolved',
+      id: tracked.id,
+      version: remote?.id === tracked.id ? remote.version : tracked.version,
+    };
   }
-  if (remote) return { kind: 'resolved', id: remote.id };
+
+  const remote = await findRemoteAgentByName(name, ctx);
+  if (remote) return { kind: 'resolved', id: remote.id, version: remote.version };
 
   if (ctx.localAgents.has(name)) {
     return { kind: 'forward', name, sentinel: pendingAgentSentinel(name) };
   }
 
   return { kind: 'missing' };
+}
+
+async function findRemoteAgentByName(
+  name: string,
+  ctx: ResolutionContext,
+): Promise<RemoteAgent | null> {
+  if (ctx.remoteAgentByName.has(name)) {
+    return ctx.remoteAgentByName.get(name)!;
+  }
+  const remote = await findAgentByName(name);
+  ctx.remoteAgentByName.set(name, remote);
+  return remote;
+}
+
+function agentStateEntryById(
+  id: string,
+  ctx: ResolutionContext,
+): { name: string; version: number } | undefined {
+  for (const [name, entry] of Object.entries(ctx.state.agents)) {
+    if (entry.id === id) return { name, version: entry.version };
+  }
+  return undefined;
+}
+
+async function agentVersionByTrackedId(
+  id: string,
+  ctx: ResolutionContext,
+): Promise<{ name: string; version: number } | undefined> {
+  const tracked = agentStateEntryById(id, ctx);
+  if (!tracked) return undefined;
+  const remote = await findRemoteAgentByName(tracked.name, ctx);
+  if (remote?.id === id) return { name: tracked.name, version: remote.version };
+  const byId = await retrieveAgent(id);
+  if (byId && !byId.archived_at) return { name: tracked.name, version: byId.version };
+  return tracked;
+}
+
+async function remoteAgentVersionById(id: string): Promise<number | undefined> {
+  const remote = await retrieveAgent(id);
+  if (!remote || remote.archived_at) return undefined;
+  return remote.version;
+}
+
+function shouldResolveAgentVersion(version: unknown): boolean {
+  return version === undefined || version === 'latest';
+}
+
+function withResolvedAgentVersion(
+  entry: Record<string, unknown>,
+  version: number | undefined,
+): Record<string, unknown> {
+  if (!shouldResolveAgentVersion(entry.version) || version === undefined) return entry;
+  return { ...entry, version };
+}
+
+function createdAgentVersionById(
+  id: string,
+  createdAgents: Map<string, string>,
+  createdAgentVersions: Map<string, number>,
+): number | undefined {
+  for (const [name, createdId] of createdAgents) {
+    if (createdId === id) return createdAgentVersions.get(name);
+  }
+  return undefined;
 }
 
 export type SkillResolution =
@@ -140,6 +211,12 @@ export interface ResolvedConfig {
   /** Name-based skill refs that could not be resolved anywhere — fatal. */
   missingSkillRefs: string[];
   /**
+   * Agent refs whose YAML omitted `version` or wrote `version: latest`.
+   * If one of these agents is updated in the same apply run, the dependent
+   * must be updated after it with that newly-created version.
+   */
+  latestAgentVersionRefs: { name: string; id: string; index?: number }[];
+  /**
    * Assertion failures from entries that wrote both `name` and `id` (or
    * `skill_id`). Each entry is `<refKind> "<name>" pinned id=<written>,
    * resolved=<actual>`. Surfaced to the caller, who should fail the plan.
@@ -161,6 +238,7 @@ export async function resolveAgentConfig(
   const forwardSkillDeps: string[] = [];
   const missingAgentRefs: string[] = [];
   const missingSkillRefs: string[] = [];
+  const latestAgentVersionRefs: { name: string; id: string; index: number }[] = [];
   const idMismatches: string[] = [];
 
   const resolved: AgentConfig = { ...config };
@@ -168,7 +246,7 @@ export async function resolveAgentConfig(
   // ----- multiagent.agents[] -----
   if (resolved.multiagent && Array.isArray(resolved.multiagent.agents)) {
     const newAgents: unknown[] = [];
-    for (const entry of resolved.multiagent.agents) {
+    for (const [idx, entry] of resolved.multiagent.agents.entries()) {
       const e = entry as unknown as Record<string, unknown> | null;
       // Pin-form: both `name` and `id` provided. Resolve the name and assert
       // the resolved id matches the pinned one. Useful as a safety net during
@@ -184,9 +262,19 @@ export async function resolveAgentConfig(
         if (res.kind === 'resolved' && res.id !== e.id) {
           idMismatches.push(`agent "${e.name}" pinned id=${e.id}, resolved id=${res.id}`);
         }
+        if (shouldResolveAgentVersion(e.version)) {
+          latestAgentVersionRefs.push({ name: e.name, id: e.id, index: idx });
+        }
         // Pass through the original id form. Mismatch (if any) is surfaced
         // via idMismatches; the caller decides whether to fail.
-        newAgents.push(entry);
+        newAgents.push(
+          withResolvedAgentVersion(
+            e,
+            res.kind === 'resolved'
+              ? res.version
+              : (await agentVersionByTrackedId(e.id, ctx))?.version,
+          ),
+        );
         continue;
       }
       if (
@@ -198,10 +286,13 @@ export async function resolveAgentConfig(
       ) {
         const res = await resolveAgentName(e.name, ctx);
         if (res.kind === 'resolved') {
+          if (shouldResolveAgentVersion(e.version)) {
+            latestAgentVersionRefs.push({ name: e.name, id: res.id, index: idx });
+          }
           newAgents.push({
             type: 'agent',
             id: res.id,
-            ...(e.version !== undefined ? { version: e.version } : {}),
+            version: shouldResolveAgentVersion(e.version) ? res.version : e.version,
           });
         } else if (res.kind === 'forward') {
           forwardAgentDeps.push(e.name);
@@ -213,6 +304,24 @@ export async function resolveAgentConfig(
         } else {
           missingAgentRefs.push(e.name);
           newAgents.push(entry);
+        }
+      } else if (e && typeof e === 'object' && e.type === 'agent' && typeof e.id === 'string') {
+        const tracked = await agentVersionByTrackedId(e.id, ctx);
+        if (tracked && shouldResolveAgentVersion(e.version)) {
+          latestAgentVersionRefs.push({ name: tracked.name, id: e.id, index: idx });
+        }
+        if (e.version === 'latest' && !tracked) {
+          const version = await remoteAgentVersionById(e.id);
+          if (version === undefined) {
+            throw new Error(
+              `agent "${config.name}" references raw id ${JSON.stringify(
+                e.id,
+              )} with version: latest, but the agent could not be retrieved`,
+            );
+          }
+          newAgents.push({ ...e, version });
+        } else {
+          newAgents.push(withResolvedAgentVersion(e, tracked?.version));
         }
       } else {
         newAgents.push(entry);
@@ -284,6 +393,7 @@ export async function resolveAgentConfig(
     forwardSkillDeps,
     missingAgentRefs,
     missingSkillRefs,
+    latestAgentVersionRefs,
     idMismatches,
   };
 }
@@ -299,6 +409,7 @@ export function substitutePendingIds(
   config: AgentConfig,
   createdAgents: Map<string, string>,
   createdSkills: Map<string, string>,
+  createdAgentVersions: Map<string, number> = new Map(),
 ): AgentConfig {
   const out: AgentConfig = { ...config };
 
@@ -314,8 +425,17 @@ export function substitutePendingIds(
             if (!resolvedId) {
               throw new Error(`internal: agent "${pending}" referenced but not yet created`);
             }
-            return { ...e, id: resolvedId };
+            return withResolvedAgentVersion(
+              { ...e, id: resolvedId },
+              createdAgentVersions.get(pending),
+            );
           }
+        }
+        if (e && typeof e === 'object' && e.type === 'agent' && typeof e.id === 'string') {
+          return withResolvedAgentVersion(
+            e,
+            createdAgentVersionById(e.id, createdAgents, createdAgentVersions),
+          );
         }
         return entry;
       }) as typeof out.multiagent.agents,

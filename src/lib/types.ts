@@ -2,7 +2,7 @@ export interface MultiagentRosterEntry {
   type: 'agent' | 'self';
   id?: string;
   name?: string;
-  version?: number;
+  version?: number | 'latest';
 }
 
 export interface MultiagentConfig {

@@ -14,6 +14,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   // (sentinel placeholders in resolved configs) right before sending each
   // action's apply params to the API.
   const createdAgents = new Map<string, string>();
+  const createdAgentVersions = new Map<string, number>();
   const createdSkills = new Map<string, string>();
 
   // For agents/skills that already existed at plan time but are being
@@ -22,6 +23,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   // We still seed the maps with state so that defensive substitution is a no-op.
   for (const [name, entry] of Object.entries(state.agents)) {
     createdAgents.set(name, entry.id);
+    createdAgentVersions.set(name, entry.version);
   }
   for (const [localName, entry] of Object.entries(state.skills)) {
     createdSkills.set(localName, entry.id);
@@ -31,6 +33,8 @@ export async function executeActions(actions: Action[], state: State): Promise<v
     if (a.type === 'noop') {
       // Existing agent already matching remote — just record it in state, skip API calls.
       state.agents[a.name] = { id: a.id, version: a.version };
+      createdAgents.set(a.name, a.id);
+      createdAgentVersions.set(a.name, a.version);
       continue;
     }
     if (a.type === 'skill_noop') {
@@ -61,17 +65,29 @@ export async function executeActions(actions: Action[], state: State): Promise<v
     try {
       if (a.type === 'create') {
         process.stdout.write(`  [+] creating agent ${JSON.stringify(a.name)}...`);
-        const finalConfig = substitutePendingIds(a.config, createdAgents, createdSkills);
+        const finalConfig = substitutePendingIds(
+          a.config,
+          createdAgents,
+          createdSkills,
+          createdAgentVersions,
+        );
         const created = await createAgent(toApplyParams(finalConfig));
         state.agents[a.name] = { id: created.id, version: created.version };
         createdAgents.set(a.name, created.id);
+        createdAgentVersions.set(a.name, created.version);
         process.stdout.write(` ok (id=${created.id}, version=${created.version})\n`);
       } else if (a.type === 'update') {
         process.stdout.write(`  [~] updating agent ${JSON.stringify(a.name)}...`);
-        const finalConfig = substitutePendingIds(a.config, createdAgents, createdSkills);
+        const finalConfig = substitutePendingIds(
+          a.config,
+          createdAgents,
+          createdSkills,
+          createdAgentVersions,
+        );
         const updated = await updateAgent(a.id, a.currentVersion, toApplyParams(finalConfig));
         state.agents[a.name] = { id: updated.id, version: updated.version };
         createdAgents.set(a.name, updated.id);
+        createdAgentVersions.set(a.name, updated.version);
         process.stdout.write(` ok (version ${a.currentVersion} -> ${updated.version})\n`);
       } else if (a.type === 'delete') {
         process.stdout.write(`  [-] archiving agent ${JSON.stringify(a.name)}...`);
