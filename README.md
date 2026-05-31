@@ -10,7 +10,7 @@
   English | <a href="./README.ja.md">日本語</a>
 </p>
 
-**cmaform** is a Terraform-style CLI for managing **Anthropic Managed Agents, Skills, Memory Stores, Environments, and Vaults** as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
+**cmaform** is a Terraform-style CLI for managing **Claude Managed Agents and their surrounding resources** — agents, skills, memory stores, environments, and vaults — as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
 
 ```text
   [~] update agent       "release-prep" (id=agent_01Qx..., version=6)
@@ -56,7 +56,7 @@ cmaform plan                                  # show the diff
 cmaform apply                                 # confirm → push to Anthropic
 ```
 
-> Anthropic's Managed Agent / Skills / Memory Stores / Environments / Vaults APIs are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` endpoints directly.
+> Claude Managed Agents and related APIs for Skills / Memory Stores / Environments / Vaults are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` endpoints directly.
 
 ## 🚀 Usage
 
@@ -379,7 +379,7 @@ node dist/cli.js --help
 ## 📋 Requirements
 
 - Node.js ≥ 22
-- An Anthropic API key with access to the Managed Agent / Skills / Memory Stores / Environments / Vaults beta
+- An Anthropic API key with access to the Claude Managed Agents and related Skills / Memory Stores / Environments / Vaults beta APIs
 
 ## 📄 License
 

@@ -10,7 +10,7 @@
   <a href="./README.md">English</a> | 日本語
 </p>
 
-**cmaform** は **Anthropic Managed Agents / Skills / Memory Stores / Environments / Vaults** を Terraform 風のワークフローで declarative に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
+**cmaform** は **Claude Managed Agents とその周辺リソース** — agents / skills / memory stores / environments / vaults — を Terraform 風のワークフローで宣言的に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
 
 ```text
   [~] update agent       "release-prep" (id=agent_01Qx..., version=6)
@@ -56,7 +56,7 @@ cmaform plan                                  # 差分確認
 cmaform apply                                 # 確認 → Anthropic に反映
 ```
 
-> Anthropic の Managed Agent / Skills / Memory Stores / Environments / Vaults API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` を直接呼びます。
+> Claude Managed Agents と Skills / Memory Stores / Environments / Vaults の関連 API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` を直接呼びます。
 
 ## 🚀 使い方
 
@@ -378,7 +378,7 @@ node dist/cli.js --help
 ## 📋 要件
 
 - Node.js ≥ 22
-- Managed Agent / Skills / Memory Stores / Environments / Vaults の beta API にアクセスできる Anthropic API key
+- Claude Managed Agents と Skills / Memory Stores / Environments / Vaults の関連 beta API にアクセスできる Anthropic API key
 
 ## 📄 ライセンス
 
