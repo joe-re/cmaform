@@ -11,16 +11,18 @@ import { computePlan, filterActionsByTargets, hasChanges } from '../lib/plan.js'
 import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
 import { buildResolutionContext, resolveAgentConfig, type ResolvedConfig } from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
-import { loadState, saveState } from '../lib/state.js';
+import { saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
 import { loadAllVaultConfigs } from '../lib/vaults.js';
+import { loadStateForPlanApply } from './state-precondition.js';
 
 export async function cmdApply(
   autoApprove: boolean,
   targets: string[] = [],
   opts: PrintPlanOptions = {},
 ): Promise<number> {
-  const state = await loadState();
+  const state = await loadStateForPlanApply('apply');
+  if (!state) return 2;
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();

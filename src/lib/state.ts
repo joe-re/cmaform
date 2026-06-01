@@ -3,17 +3,28 @@ import { promises as fs } from 'node:fs';
 import { STATE_PATH } from './config.js';
 import type { State } from './types.js';
 
+export class MissingStateFileError extends Error {
+  constructor() {
+    super(`State file not found: ${STATE_PATH}`);
+    this.name = 'MissingStateFileError';
+  }
+}
+
+function normalizeState(parsed: Partial<State> | null): State {
+  return {
+    agents: parsed?.agents ?? {},
+    skills: parsed?.skills ?? {},
+    memory_stores: parsed?.memory_stores ?? {},
+    environments: parsed?.environments ?? {},
+    vaults: parsed?.vaults ?? {},
+  };
+}
+
 export async function loadState(): Promise<State> {
   try {
     const content = await fs.readFile(STATE_PATH, 'utf-8');
     const parsed = JSON.parse(content) as Partial<State> | null;
-    return {
-      agents: parsed?.agents ?? {},
-      skills: parsed?.skills ?? {},
-      memory_stores: parsed?.memory_stores ?? {},
-      environments: parsed?.environments ?? {},
-      vaults: parsed?.vaults ?? {},
-    };
+    return normalizeState(parsed);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return {
@@ -23,6 +34,19 @@ export async function loadState(): Promise<State> {
         environments: {},
         vaults: {},
       };
+    }
+    throw err;
+  }
+}
+
+export async function loadRequiredState(): Promise<State> {
+  try {
+    const content = await fs.readFile(STATE_PATH, 'utf-8');
+    const parsed = JSON.parse(content) as Partial<State> | null;
+    return normalizeState(parsed);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new MissingStateFileError();
     }
     throw err;
   }
