@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-08
+
+### Changed
+
+- `cmaform plan` / `cmaform apply` now require an existing
+  `cmaform.state.json` (created by `init` or `pull`). When the state file
+  is missing they fail with exit code 2 and point at `cmaform init`,
+  instead of silently proceeding against an empty state.
+- Updated `@anthropic-ai/sdk` to `^0.102.0`.
+
 ## [0.2.1] - 2026-06-01
 
 ### Changed
@@ -106,7 +116,8 @@ Initial public release.
 - `dist/cli.js.map` is intentionally not shipped in the npm tarball.
 - `pnpm audit` clean against `@anthropic-ai/sdk` 0.98.0 and `yaml` 2.x.
 
-[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/joe-re/cmaform/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/joe-re/cmaform/releases/tag/v0.2.1
 [0.2.0]: https://github.com/joe-re/cmaform/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/joe-re/cmaform/releases/tag/v0.1.0
