@@ -7,15 +7,16 @@ import { computePlan, filterActionsByTargets } from '../lib/plan.js';
 import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
 import { buildResolutionContext, resolveAgentConfig, type ResolvedConfig } from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
-import { loadState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
 import { loadAllVaultConfigs } from '../lib/vaults.js';
+import { loadStateForPlanApply } from './state-precondition.js';
 
 export async function cmdPlan(
   targets: string[] = [],
   opts: PrintPlanOptions = {},
 ): Promise<number> {
-  const state = await loadState();
+  const state = await loadStateForPlanApply('plan');
+  if (!state) return 2;
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
   const memoryStores = await loadAllMemoryStoreConfigs();
