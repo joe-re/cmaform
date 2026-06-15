@@ -159,6 +159,11 @@ export async function archiveEnvironment(id: string): Promise<void> {
   await anthropic.beta.environments.archive(id);
 }
 
+export async function findEnvironmentByName(name: string): Promise<RemoteEnvironment | null> {
+  const envs = await listEnvironments();
+  return envs.find((e) => e.name === name && !e.archived_at) ?? null;
+}
+
 // ---------------- normalization ----------------
 //
 // The retrieve response always materializes every package-manager key as an

@@ -1,11 +1,18 @@
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
+import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets } from '../lib/plan.js';
 import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
-import { buildResolutionContext, resolveAgentConfig, type ResolvedConfig } from '../lib/resolve.js';
+import {
+  buildResolutionContext,
+  resolveAgentConfig,
+  resolveDeploymentConfig,
+  type ResolvedConfig,
+  type ResolvedDeploymentConfig,
+} from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { topoSortActions } from '../lib/topo-sort.js';
 import { loadAllVaultConfigs } from '../lib/vaults.js';
@@ -22,12 +29,13 @@ export async function cmdPlan(
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
   const vaults = await loadAllVaultConfigs();
+  const deployments = await loadAllDeploymentConfigs();
 
   // Resolve every agent's `multiagent.agents[]` and `skills[]` references
   // (name → id, with forward-dep sentinels for refs that point inside this
   // apply set). Done before computePlan so that diff comparison sees the
   // resolved id form against remote.
-  const ctx = buildResolutionContext(state, configs, skills);
+  const ctx = buildResolutionContext(state, configs, skills, environments.keys(), vaults.keys());
   const resolutions = new Map<string, ResolvedConfig>();
   const missing: string[] = [];
   const idMismatches: string[] = [];
@@ -37,6 +45,13 @@ export async function cmdPlan(
     for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
     for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
     for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
+  }
+  const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
+  for (const [localName, { config }] of deployments) {
+    const r = await resolveDeploymentConfig(config, ctx);
+    deploymentResolutions.set(localName, r);
+    for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
+    for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
   }
   if (missing.length > 0) {
     process.stderr.write(
@@ -68,7 +83,9 @@ export async function cmdPlan(
     memoryStores,
     environments,
     vaults,
+    deployments,
     resolutions,
+    deploymentResolutions,
     { targets },
   );
 

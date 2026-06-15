@@ -1,0 +1,18 @@
+name: hello-deployment
+description: Minimal example deployment that runs the hello agent on a schedule.
+# Name-based references: resolved against state -> remote -> the local apply
+# set. Raw ids (agent_... / env_...) are also accepted.
+agent: hello
+environment: hello-env
+# Sent to each session the deployment starts. At least 1, at most 50.
+initial_events:
+  - type: user.message
+    content:
+      - type: text
+        text: Introduce yourself.
+# 5-field POSIX cron. Omit `schedule` for an on-demand (manual-run) deployment.
+schedule:
+  type: cron
+  expression: '0 9 * * 1-5' # 09:00 on weekdays
+  timezone: Asia/Tokyo
+metadata: {}

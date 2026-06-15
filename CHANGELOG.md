@@ -7,6 +7,29 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- **Deployment** resource (`deployments/<localName>/manifest.yaml`): manage
+  scheduled (cron) and on-demand managed-agent deployments declaratively.
+  A deployment binds an agent + environment + initial events + an optional
+  5-field POSIX cron `schedule` into one unit, supports `create` / `update` /
+  `archive`, and is wired into `plan` / `apply` / `pull` / `sync` / `list` /
+  `init` and the `deployment` / `deploy` target aliases.
+  - `agent` / `environment` / `vault_ids[]` accept name-based references
+    (resolved via state → remote → local apply set, with forward-dependency
+    support) in addition to raw ids.
+  - Omitting the agent `version` tracks the latest at create time (version
+    drift is ignored in the diff); pinning a version detects and re-pins it.
+  - Write-only resource credentials (e.g. a GitHub `authorization_token`) are
+    sent on create/update but stripped before diffing; computed schedule fields
+    (`last_run_at` / `upcoming_runs_at`) are ignored. The imperative
+    `pause` / `unpause` / `run` transitions are out of scope.
+
+### Changed
+
+- Updated `@anthropic-ai/sdk` to `^0.104.1` (adds the `beta.deployments.*`
+  endpoints).
+
 ## [0.3.0] - 2026-06-08
 
 ### Changed

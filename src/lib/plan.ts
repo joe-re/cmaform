@@ -1,17 +1,21 @@
 import { fieldDiffs, resolveRemote } from './agents.js';
+import { deploymentFieldDiffs, retrieveDeployment } from './deployments.js';
 import { environmentFieldDiffs, retrieveEnvironment } from './environments.js';
 import { memoryStoreFieldDiffs, retrieveMemoryStore } from './memory-stores.js';
-import type { ResolvedConfig } from './resolve.js';
+import type { ResolvedConfig, ResolvedDeploymentConfig } from './resolve.js';
 import { findSkillByDisplayTitle } from './skills.js';
 import { retrieveVault, type LocalVault } from './vaults.js';
 import type {
   AgentConfig,
+  DeploymentConfig,
   EnvironmentConfig,
   FieldDiff,
   LocalSkill,
   MemoryStoreConfig,
+  RemoteDeployment,
   RemoteEnvironment,
   RemoteMemoryStore,
+  ResolvedDeployment,
   State,
   VaultConfig,
 } from './types.js';
@@ -151,6 +155,39 @@ export type Action =
       type: 'vault_archive';
       localName: string;
       id: string;
+    }
+  // deployments
+  | {
+      type: 'deploy_create';
+      localName: string;
+      config: ResolvedDeployment;
+      dirPath: string;
+      forwardAgentDeps: string[];
+      forwardEnvDeps: string[];
+      forwardVaultDeps: string[];
+    }
+  | {
+      type: 'deploy_update';
+      localName: string;
+      id: string;
+      config: ResolvedDeployment;
+      remote: RemoteDeployment;
+      dirPath: string;
+      diffs: FieldDiff[];
+      forwardAgentDeps: string[];
+      forwardEnvDeps: string[];
+      forwardVaultDeps: string[];
+    }
+  | {
+      type: 'deploy_noop';
+      localName: string;
+      id: string;
+      name: string;
+    }
+  | {
+      type: 'deploy_archive';
+      localName: string;
+      id: string;
     };
 
 export async function computePlan(
@@ -160,7 +197,9 @@ export async function computePlan(
   memoryStores: Map<string, { config: MemoryStoreConfig; dirPath: string }>,
   environments: Map<string, { config: EnvironmentConfig; dirPath: string }>,
   vaults: Map<string, LocalVault>,
+  deployments: Map<string, { config: DeploymentConfig; dirPath: string }>,
   resolutions: Map<string, ResolvedConfig>,
+  deploymentResolutions: Map<string, ResolvedDeploymentConfig>,
   opts: { targets?: string[] } = {},
 ): Promise<Action[]> {
   const actions: Action[] = [];
@@ -419,6 +458,43 @@ export async function computePlan(
     }
   }
 
+  // ----- deployments -----
+  for (const [localName, { dirPath }] of deployments) {
+    const resolution = deploymentResolutions.get(localName)!;
+    const config = resolution.config;
+    const forwardDeps = {
+      forwardAgentDeps: resolution.forwardAgentDeps,
+      forwardEnvDeps: resolution.forwardEnvDeps,
+      forwardVaultDeps: resolution.forwardVaultDeps,
+    };
+    const tracked = state.deployments[localName];
+    const remote = tracked ? await retrieveDeployment(tracked.id) : null;
+    if (!remote || remote.archived_at) {
+      actions.push({ type: 'deploy_create', localName, config, dirPath, ...forwardDeps });
+      continue;
+    }
+    const diffs = deploymentFieldDiffs(config, remote);
+    if (diffs.length === 0) {
+      actions.push({ type: 'deploy_noop', localName, id: remote.id, name: remote.name });
+    } else {
+      actions.push({
+        type: 'deploy_update',
+        localName,
+        id: remote.id,
+        config,
+        remote,
+        dirPath,
+        diffs,
+        ...forwardDeps,
+      });
+    }
+  }
+  for (const [localName, entry] of Object.entries(state.deployments)) {
+    if (!deployments.has(localName)) {
+      actions.push({ type: 'deploy_archive', localName, id: entry.id });
+    }
+  }
+
   return actions;
 }
 
@@ -469,7 +545,7 @@ function markLatestAgentVersions(
 
 // ---------------- target filtering ----------------
 
-type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault';
+type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault' | 'deployment';
 
 function actionResourceName(a: Action): string {
   if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
@@ -483,6 +559,7 @@ function actionResourceKind(a: Action): ResourceKind {
   if (a.type.startsWith('memstore_')) return 'memory_store';
   if (a.type.startsWith('env_')) return 'environment';
   if (a.type.startsWith('vault_')) return 'vault';
+  if (a.type.startsWith('deploy_')) return 'deployment';
   return 'agent';
 }
 
@@ -501,6 +578,10 @@ const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
   envs: 'environment',
   vault: 'vault',
   vaults: 'vault',
+  deployment: 'deployment',
+  deployments: 'deployment',
+  deploy: 'deployment',
+  deploys: 'deployment',
 };
 
 export function filterActionsByTargets(
@@ -540,6 +621,7 @@ export function hasChanges(actions: Action[]): boolean {
       a.type !== 'skill_noop' &&
       a.type !== 'memstore_noop' &&
       a.type !== 'env_noop' &&
-      a.type !== 'vault_noop',
+      a.type !== 'vault_noop' &&
+      a.type !== 'deploy_noop',
   );
 }

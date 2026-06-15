@@ -54,12 +54,18 @@ export interface EnvironmentStateEntry {
   name: string;
 }
 
+export interface DeploymentStateEntry {
+  id: string;
+  name: string;
+}
+
 export interface State {
   agents: Record<string, { id: string; version: number }>;
   skills: Record<string, SkillStateEntry>;
   memory_stores: Record<string, MemoryStoreStateEntry>;
   environments: Record<string, EnvironmentStateEntry>;
   vaults: Record<string, VaultStateEntry>;
+  deployments: Record<string, DeploymentStateEntry>;
 }
 
 export interface RemoteSkill {
@@ -176,6 +182,88 @@ export interface RemoteVault {
 export interface VaultStateEntry {
   id: string;
   display_name: string;
+}
+
+// ---------------- deployments ----------------
+//
+// A deployment binds an agent + environment + initial events + an optional
+// cron schedule into one unit that the platform runs (on the schedule, or
+// on demand). cmaform manages the declarative shape of a deployment:
+// **create / update / archive**. The imperative state transitions exposed by
+// the API — pause / unpause / run — are intentionally out of scope (the
+// status field is treated as remote-owned).
+
+/**
+ * 5-field POSIX cron schedule. `expression` uses the standard
+ * "minute hour day-of-month month day-of-week" form (no seconds/year fields,
+ * no `L W # ?` specials, no `@daily`-style shortcuts). `timezone` is an IANA
+ * identifier (e.g. "Asia/Tokyo", "UTC").
+ */
+export interface CronSchedule {
+  type: 'cron';
+  expression: string;
+  timezone: string;
+}
+
+/** Object form of a deployment's agent reference in local YAML. */
+export interface DeploymentAgentRef {
+  /** Logical name of a local/remote agent (mutually exclusive-ish with `id`). */
+  name?: string;
+  /** Raw agent id (`agent_...`). */
+  id?: string;
+  /** Pin a specific version; omit to track the latest at create time. */
+  version?: number;
+}
+
+export interface DeploymentConfig {
+  name: string;
+  description?: string | null;
+  /** `agent_...` id, a local/remote agent name, or an object ref. */
+  agent: string | DeploymentAgentRef;
+  /** `env_...` id or a local/remote environment name. */
+  environment: string;
+  /** Events sent to each session immediately after creation (1–50). */
+  initial_events: unknown[];
+  schedule?: CronSchedule | null;
+  /** Session resources mounted into each run's container. */
+  resources?: unknown[];
+  /** Vault `vlt_...` ids or local/remote vault names. */
+  vault_ids?: string[];
+  metadata?: Record<string, string>;
+}
+
+/**
+ * A deployment config after every name-based reference has been resolved to
+ * the id form the API expects. `agent.id` / `environment_id` / `vault_ids[]`
+ * may transiently hold a forward-dependency sentinel during plan computation.
+ */
+export interface ResolvedDeployment {
+  name: string;
+  description?: string | null;
+  agent: { id: string; version?: number };
+  environment_id: string;
+  initial_events: unknown[];
+  schedule?: CronSchedule | null;
+  resources?: unknown[];
+  vault_ids?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface RemoteDeployment {
+  id: string;
+  name: string;
+  description?: string | null;
+  agent: { id: string; type: 'agent'; version: number };
+  environment_id: string;
+  initial_events: unknown[];
+  schedule?: (CronSchedule & { last_run_at?: string | null; upcoming_runs_at?: string[] }) | null;
+  resources?: unknown[];
+  vault_ids?: string[];
+  metadata?: Record<string, string>;
+  status?: 'active' | 'paused';
+  archived_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface FieldDiff {
