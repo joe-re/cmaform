@@ -1,6 +1,6 @@
 {
   "name": "cmaform",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Terraform-style declarative management for Claude Managed Agents and related resources.",
   "keywords": [
     "agents",
@@ -9,6 +9,7 @@
     "claude",
     "claude-code",
     "cli",
+    "deployments",
     "environments",
     "iac",
     "managed-agents",
