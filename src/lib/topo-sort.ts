@@ -27,10 +27,12 @@ export function actionId(action: Action): string {
   ) {
     return `agent:${action.name}`;
   }
-  if (action.type.startsWith('skill_')) {
-    return `skill:${(action as { localName: string }).localName}`;
-  }
-  return `memstore:${(action as { localName: string }).localName}`;
+  const localName = (action as { localName: string }).localName;
+  if (action.type.startsWith('skill_')) return `skill:${localName}`;
+  if (action.type.startsWith('env_')) return `environment:${localName}`;
+  if (action.type.startsWith('vault_')) return `vault:${localName}`;
+  if (action.type.startsWith('deploy_')) return `deployment:${localName}`;
+  return `memstore:${localName}`;
 }
 
 export function topoSortActions(actions: Action[]): Action[] {
@@ -49,6 +51,12 @@ export function topoSortActions(actions: Action[]): Action[] {
       deps = [
         ...action.forwardAgentDeps.map((n) => `agent:${n}`),
         ...action.forwardSkillDeps.map((n) => `skill:${n}`),
+      ];
+    } else if (action.type === 'deploy_create' || action.type === 'deploy_update') {
+      deps = [
+        ...action.forwardAgentDeps.map((n) => `agent:${n}`),
+        ...action.forwardEnvDeps.map((n) => `environment:${n}`),
+        ...action.forwardVaultDeps.map((n) => `vault:${n}`),
       ];
     }
     return { index, action, deps, id };

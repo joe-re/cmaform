@@ -25,10 +25,11 @@ function showHelp(): void {
       `  cmaform pull <memstore_id>        # import a remote memory_store (writes manifest.yaml + state)\n` +
       `  cmaform pull <env_id>             # import a remote environment (writes manifest.yaml + state)\n` +
       `  cmaform pull <vlt_id>             # import a remote vault (writes manifest.yaml + state; credentials are not managed by cmaform yet)\n` +
-      `  cmaform sync [--by-id]            # rewrite YAML for every entry in state from remote; --by-id keeps raw IDs in multiagent/skills refs\n` +
+      `  cmaform pull <deploy_id>          # import a remote deployment (writes manifest.yaml + state)\n` +
+      `  cmaform sync [--by-id]            # rewrite YAML for every entry in state from remote; --by-id keeps raw IDs in multiagent/skills/deployment refs\n` +
       `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
       `  cmaform plan [--verbose|-v] [target...]\n` +
-      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults or resource name)\n` +
+      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults/deployments or resource name)\n` +
       `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +

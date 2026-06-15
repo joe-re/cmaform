@@ -3,6 +3,12 @@ import path from 'node:path';
 import { retrieveAgent, writeAgentYamlFromRemote } from '../lib/agents.js';
 import { CMAFORM_DIR, STATE_PATH } from '../lib/config.js';
 import {
+  findDeploymentByName,
+  loadAllDeploymentConfigs,
+  retrieveDeployment,
+  writeDeploymentManifestFromRemote,
+} from '../lib/deployments.js';
+import {
   listEnvironments,
   loadAllEnvironmentConfigs,
   retrieveEnvironment,
@@ -49,6 +55,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
   const vaults = await loadAllVaultConfigs();
+  const deployments = await loadAllDeploymentConfigs();
 
   const hasAnything =
     Object.keys(state.agents).length > 0 ||
@@ -56,10 +63,12 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     Object.keys(state.memory_stores).length > 0 ||
     Object.keys(state.environments).length > 0 ||
     Object.keys(state.vaults).length > 0 ||
+    Object.keys(state.deployments).length > 0 ||
     skills.size > 0 ||
     memoryStores.size > 0 ||
     environments.size > 0 ||
-    vaults.size > 0;
+    vaults.size > 0 ||
+    deployments.size > 0;
 
   if (!hasAnything) {
     process.stdout.write(
@@ -82,6 +91,9 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   let vaultWritten = 0;
   let vaultSkipped = 0;
   let vaultDiscovered = 0;
+  let deployWritten = 0;
+  let deploySkipped = 0;
+  let deployDiscovered = 0;
   let stateChanged = false;
 
   // ----- agents -----
@@ -295,6 +307,48 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     }
   }
 
+  // ----- deployments -----
+  for (const localName of Object.keys(state.deployments)) {
+    const entry = state.deployments[localName];
+    const remote = await retrieveDeployment(entry.id);
+    if (!remote || remote.archived_at) {
+      process.stdout.write(
+        `  [!] skip deployment ${JSON.stringify(localName)}: remote is archived or missing (id=${entry.id})\n`,
+      );
+      deploySkipped++;
+      continue;
+    }
+    const manifestPath = await writeDeploymentManifestFromRemote(
+      remote,
+      localName,
+      opts.byId ? null : state,
+    );
+    process.stdout.write(
+      `  [+] wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`,
+    );
+    deployWritten++;
+    if (entry.name !== remote.name) {
+      state.deployments[localName] = { id: entry.id, name: remote.name };
+      stateChanged = true;
+    }
+  }
+  for (const [localName, { config }] of deployments) {
+    if (state.deployments[localName]) continue;
+    const remote = await findDeploymentByName(config.name);
+    if (remote) {
+      state.deployments[localName] = { id: remote.id, name: remote.name };
+      process.stdout.write(
+        `  [+] discovered deployment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
+      );
+      deployDiscovered++;
+      stateChanged = true;
+    } else {
+      process.stdout.write(
+        `  [?] not found on remote: deployment ${JSON.stringify(localName)} (name=${JSON.stringify(config.name)})\n`,
+      );
+    }
+  }
+
   if (stateChanged) {
     await saveState(state);
     process.stdout.write(`\nState updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
@@ -306,6 +360,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
       `  memory_stores: ${memWritten} written, ${memDiscovered} discovered, ${memSkipped} skipped\n` +
       `  environments:  ${envWritten} written, ${envDiscovered} discovered, ${envSkipped} skipped\n` +
       `  vaults:        ${vaultWritten} written, ${vaultDiscovered} discovered, ${vaultSkipped} skipped\n` +
+      `  deployments:   ${deployWritten} written, ${deployDiscovered} discovered, ${deploySkipped} skipped\n` +
       `  (skill content files such as SKILL.md cannot be fetched from the API and are not regenerated)\n`,
   );
   return 0;

@@ -117,3 +117,8 @@ export async function createVault(config: VaultConfig): Promise<RemoteVault> {
 export async function archiveVault(id: string): Promise<void> {
   await anthropic.beta.vaults.archive(id);
 }
+
+export async function findVaultByDisplayName(displayName: string): Promise<RemoteVault | null> {
+  const vaults = await listVaults();
+  return vaults.find((v) => v.display_name === displayName && !v.archived_at) ?? null;
+}

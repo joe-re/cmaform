@@ -10,7 +10,7 @@
   <a href="./README.md">English</a> | 日本語
 </p>
 
-**cmaform** は **Claude Managed Agents とその周辺リソース** — agents / skills / memory stores / environments / vaults — を Terraform 風のワークフローで宣言的に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
+**cmaform** は **Claude Managed Agents とその周辺リソース** — agents / skills / memory stores / environments / vaults / deployments — を Terraform 風のワークフローで宣言的に管理する CLI です。1 リソース = 1 ファイル (YAML / SKILL.md / manifest.yaml) で git にコミットでき、`cmaform plan` で差分を確認、`cmaform apply` で適用します。
 
 ```text
   [~] update agent       "release-prep" (id=agent_01Qx..., version=6)
@@ -29,6 +29,7 @@ Plan (skills):         1 to add, 0 to change, 0 to delete, 0 unchanged.
 Plan (memory_stores):  0 to add, 0 to change, 0 to archive, 0 unchanged.
 Plan (environments):   0 to add, 0 to change, 0 to archive, 1 unchanged.
 Plan (vaults):         0 to archive, 1 unchanged.
+Plan (deployments):    0 to add, 0 to change, 0 to archive, 1 unchanged.
 ```
 
 ## ⚡ クイックスタート
@@ -56,21 +57,21 @@ cmaform plan                                  # 差分確認
 cmaform apply                                 # 確認 → Anthropic に反映
 ```
 
-> Claude Managed Agents と Skills / Memory Stores / Environments / Vaults の関連 API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` を直接呼びます。
+> Claude Managed Agents と Skills / Memory Stores / Environments / Vaults / Deployments の関連 API は現時点で **beta** です。cmaform は内部で `@anthropic-ai/sdk` の `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` / `beta.deployments.*` を直接呼びます。
 
 ## 🚀 使い方
 
 ### コマンド一覧
 
-| コマンド                                                | 説明                                                                                                                                                                                                       |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmaform pull <id> [--by-id]`                           | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` ID から remote → local / state に取り込む。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力 |
-| `cmaform plan [--verbose\|-v] [target...]`              | local YAML / state / remote の差分を Terraform 風に表示。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                                     |
-| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                                                      |
-| `cmaform sync [--by-id]`                                | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力                                          |
-| `cmaform init`                                          | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当)                                                                                                         |
-| `cmaform list`                                          | local files / state / remote を並べて表示                                                                                                                                                                  |
-| `cmaform fmt`                                           | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す                                                                                        |
+| コマンド                                                | 説明                                                                                                                                                                                                 |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmaform pull <id> [--by-id]`                           | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` / `deploy_*` ID から remote → local / state に取り込む。`--by-id` で agent / deployment YAML の参照を name 形式に書き換えず生 ID のまま出力 |
+| `cmaform plan [--verbose\|-v] [target...]`              | local YAML / state / remote の差分を Terraform 風に表示。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                               |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                                                |
+| `cmaform sync [--by-id]`                                | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力                                    |
+| `cmaform init`                                          | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当)                                                                                                   |
+| `cmaform list`                                          | local files / state / remote を並べて表示                                                                                                                                                            |
+| `cmaform fmt`                                           | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す                                                                                  |
 
 ### plan / apply の絞り込み
 
@@ -93,6 +94,7 @@ cmaform apply skills release-prep        # 全 skill + release-prep agent
 | Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | `memory_stores/` 配下のディレクトリ名 | `team-notes` (`memory_stores/team-notes/`)              |
 | Environment  | `environment` / `environments` / `env` / `envs`             | `environments/` 配下のディレクトリ名  | `python-dev` (`environments/python-dev/`)               |
 | Vault        | `vault` / `vaults`                                          | `vaults/` 配下のディレクトリ名        | `my-bot` (`vaults/my-bot/`)                             |
+| Deployment   | `deployment` / `deployments` / `deploy` / `deploys`         | `deployments/` 配下のディレクトリ名   | `nightly` (`deployments/nightly/`)                      |
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
 
@@ -106,13 +108,14 @@ cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state のみ更新 (SKILL.md は
 cmaform pull memstore_01ABC...                # memory_stores/<name>/manifest.yaml を生成
 cmaform pull env_015G...                      # environments/<name>/manifest.yaml を生成
 cmaform pull vlt_011CaQ...                    # vaults/<name>/manifest.yaml を生成 (credentials は cmaform 管理対象外)
+cmaform pull deploy_01Gk...                   # deployments/<name>/manifest.yaml + state を生成
 ```
 
 Skill 本体ファイル (`SKILL.md` 等) は **API が content を返さない**ため、`pull` でも復元できません。state には ID / version / display_title だけが記録され、ローカルファイルは自分で書く必要があります。
 
 ## 📦 リソース
 
-cmaform は 5 種類のリソース — **agents** / **skills** / **memory stores** / **environments** / **vaults** — を管理します。それぞれが構成ルート直下の独立したディレクトリに置かれます。(vault は cmaform で作成後、Anthropic Console 上で設定を行ってください。)
+cmaform は 6 種類のリソース — **agents** / **skills** / **memory stores** / **environments** / **vaults** / **deployments** — を管理します。それぞれが構成ルート直下の独立したディレクトリに置かれます。(vault は cmaform で作成後、Anthropic Console 上で設定を行ってください。)
 
 ### Agent (`agents/<name>.yaml`)
 
@@ -301,6 +304,49 @@ metadata:
   external_user_id: bot
 ```
 
+### Deployment (`deployments/<localName>/manifest.yaml`)
+
+deployment は **agent** + **environment** + **初期イベント** + 任意の **cron スケジュール** を 1 つの単位に束ねます。プラットフォームはスケジュール発火ごとに deployment からセッションを生成します (手動実行も可能)。managed agent を定期実行する仕組みです。
+
+```yaml
+name: nightly-triage # workspace 内で一意
+description: optional
+# agent は name 参照 (state -> remote -> 同一 apply セットの順で解決) か生 ID。
+# version を省略すると作成時の最新に追従。固定したい場合は version を指定。
+agent: release-prep
+# agent:
+#   name: release-prep
+#   version: 6
+environment: python-dev # environment 名 または env_... ID
+# セッション生成直後に送るイベント (1〜50)。
+initial_events:
+  - type: user.message
+    content:
+      - type: text
+        text: Run the nightly triage.
+# 任意。5 フィールドの POSIX cron (分 時 日 月 曜日)。
+# 拡張構文 (秒/年, L W # ?, @daily) は非対応。ブロックごと省略するとオンデマンド
+# (手動実行) の deployment になります。
+schedule:
+  type: cron
+  expression: '0 9 * * 1-5' # 平日 09:00
+  timezone: Asia/Tokyo # IANA タイムゾーン
+# 任意。各セッションのコンテナにマウントするリソース。
+resources: []
+# 任意。credential を供給する vault 名 または vlt_... ID。
+vault_ids: []
+metadata: {}
+```
+
+- **識別子**: `name` フィールド。`deployment_id` は state 側で保持します (YAML には書きません)。
+- **差分対象**: `name` / `description` / `agent` / `environment_id` / `initial_events` / `schedule` / `resources` / `vault_ids` / `metadata`。
+- **参照**: `agent` / `environment` / `vault_ids[]` は論理 **名前** ([Name ベース参照](#-name-ベース参照)と同じ解決ルール) または生 ID を受け付けます。**同一 apply 実行内**で作成されるリソースを名前参照した場合は forward dependency として扱われ、cmaform が先に作成してから deployment を作ります。
+- **agent version**: `version` を省略すると作成時の最新に追従し、以降の version 差分は diff で無視されます。`version` を固定すると変更検知 + 再ピン留めの対象になります。
+- **削除**: state にあって local に無い ⇒ `archive` (一方向。スケジュール発火は停止)。
+- **対象外**: 命令的な `pause` / `unpause` / `run` は宣言的にはモデル化しません (`status` は remote 所有)。書き込み専用の credential を含む `resources` (例: GitHub の `authorization_token`) は create/update では送信しますが diff 比較前に取り除くため、恒常的な変更としては出ません。
+
+スキーマの全体は [Anthropic Deployments ドキュメント](https://platform.claude.com/docs/en/managed-agents) を参照してください。
+
 ## 🗂️ ディレクトリ構成
 
 cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定したパス) を構成ルートとして読み書きします:
@@ -316,6 +362,8 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ├── environments/
 │   └── <localName>/manifest.yaml
 ├── vaults/
+│   └── <localName>/manifest.yaml
+├── deployments/
 │   └── <localName>/manifest.yaml
 └── cmaform.state.json
 ```
@@ -343,6 +391,9 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
   },
   "vaults": {
     "my-bot": { "id": "vlt_01...", "display_name": "my-bot" }
+  },
+  "deployments": {
+    "nightly-triage": { "id": "deploy_01...", "name": "nightly-triage" }
   }
 }
 ```
@@ -378,7 +429,7 @@ node dist/cli.js --help
 ## 📋 要件
 
 - Node.js ≥ 22
-- Claude Managed Agents と Skills / Memory Stores / Environments / Vaults の関連 beta API にアクセスできる Anthropic API key
+- Claude Managed Agents と Skills / Memory Stores / Environments / Vaults / Deployments の関連 beta API にアクセスできる Anthropic API key
 
 ## 📄 ライセンス
 

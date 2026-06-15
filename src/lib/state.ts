@@ -17,6 +17,7 @@ function normalizeState(parsed: Partial<State> | null): State {
     memory_stores: parsed?.memory_stores ?? {},
     environments: parsed?.environments ?? {},
     vaults: parsed?.vaults ?? {},
+    deployments: parsed?.deployments ?? {},
   };
 }
 
@@ -33,6 +34,7 @@ export async function loadState(): Promise<State> {
         memory_stores: {},
         environments: {},
         vaults: {},
+        deployments: {},
       };
     }
     throw err;
@@ -59,6 +61,7 @@ export async function saveState(state: State): Promise<void> {
     memory_stores: {},
     environments: {},
     vaults: {},
+    deployments: {},
   };
   for (const key of Object.keys(state.agents).sort()) {
     sorted.agents[key] = state.agents[key];
@@ -74,6 +77,9 @@ export async function saveState(state: State): Promise<void> {
   }
   for (const key of Object.keys(state.vaults).sort()) {
     sorted.vaults[key] = state.vaults[key];
+  }
+  for (const key of Object.keys(state.deployments).sort()) {
+    sorted.deployments[key] = state.deployments[key];
   }
   await fs.writeFile(STATE_PATH, JSON.stringify(sorted, null, 2) + '\n', 'utf-8');
 }
