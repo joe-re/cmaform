@@ -280,6 +280,18 @@ const AGENT_CREATE_FIELD_ORDER = [
   'metadata',
 ] as const;
 
+const DEPLOYMENT_CREATE_FIELD_ORDER = [
+  'name',
+  'description',
+  'agent',
+  'environment_id',
+  'initial_events',
+  'schedule',
+  'resources',
+  'vault_ids',
+  'metadata',
+] as const;
+
 export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void {
   setDisplayIdMap({
     agents: opts.agentIdToName ?? new Map(),
@@ -304,6 +316,10 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
   let vaultCreates = 0;
   let vaultArchives = 0;
   let vaultNoops = 0;
+  let deployCreates = 0;
+  let deployUpdates = 0;
+  let deployArchives = 0;
+  let deployNoops = 0;
 
   for (const a of actions) {
     switch (a.type) {
@@ -525,6 +541,54 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
       case 'vault_noop':
         vaultNoops++;
         break;
+      case 'deploy_create': {
+        process.stdout.write(
+          colorize('green', `  [+] create deployment ${JSON.stringify(a.localName)}`) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
+        );
+        const dcfg = a.config as unknown as Record<string, unknown>;
+        for (const field of DEPLOYMENT_CREATE_FIELD_ORDER) {
+          const value = dcfg[field];
+          if (value === undefined) continue;
+          process.stdout.write(formatCreateField(field, value, '       ', opts));
+        }
+        deployCreates++;
+        break;
+      }
+      case 'deploy_update':
+        process.stdout.write(
+          colorize(
+            'yellow',
+            `  [~] update deployment ${JSON.stringify(a.localName)} (id=${a.id})`,
+          ) +
+            '\n' +
+            `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
+        );
+        for (const d of a.diffs) {
+          process.stdout.write(formatFieldDiff(d, '       '));
+        }
+        deployUpdates++;
+        break;
+      case 'deploy_archive':
+        process.stdout.write(
+          colorize('red', `  [-] archive deployment ${JSON.stringify(a.localName)} (id=${a.id})`) +
+            '\n' +
+            `       ${colorize('dim', 'reason: present in state but no local directory')}\n` +
+            '       ' +
+            colorizeMany(['bold', 'yellow'], 'NOTE:') +
+            ' ' +
+            colorize(
+              'yellow',
+              'archive is one-way; the schedule stops firing and no new sessions are created',
+            ) +
+            '\n',
+        );
+        deployArchives++;
+        break;
+      case 'deploy_noop':
+        deployNoops++;
+        break;
     }
   }
 
@@ -533,6 +597,7 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
       `Plan (skills):         ${skillCreates} to add, ${skillUpdates} to change, ${skillDeletes} to delete, ${skillNoops} unchanged.\n` +
       `Plan (memory_stores):  ${memCreates} to add, ${memUpdates} to change, ${memArchives} to archive, ${memNoops} unchanged.\n` +
       `Plan (environments):   ${envCreates} to add, ${envUpdates} to change, ${envArchives} to archive, ${envNoops} unchanged.\n` +
-      `Plan (vaults):         ${vaultCreates} to add, ${vaultArchives} to archive, ${vaultNoops} unchanged.\n`,
+      `Plan (vaults):         ${vaultCreates} to add, ${vaultArchives} to archive, ${vaultNoops} unchanged.\n` +
+      `Plan (deployments):    ${deployCreates} to add, ${deployUpdates} to change, ${deployArchives} to archive, ${deployNoops} unchanged.\n`,
   );
 }

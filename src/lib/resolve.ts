@@ -1,6 +1,19 @@
 import { findAgentByName, retrieveAgent } from './agents.js';
+import { findEnvironmentByName } from './environments.js';
 import { findSkillByDisplayTitle } from './skills.js';
-import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
+import { findVaultByDisplayName } from './vaults.js';
+import type {
+  AgentConfig,
+  DeploymentAgentRef,
+  DeploymentConfig,
+  LocalSkill,
+  RemoteAgent,
+  RemoteEnvironment,
+  RemoteSkill,
+  RemoteVault,
+  ResolvedDeployment,
+  State,
+} from './types.js';
 
 /**
  * Build-time context for resolving name-based references in agent YAML.
@@ -19,22 +32,34 @@ export interface ResolutionContext {
   localAgents: Map<string, AgentConfig>;
   /** Local skills keyed by local directory name (= state key). */
   localSkills: Map<string, LocalSkill>;
+  /** Local environment directory names (= state keys). */
+  localEnvironments: Set<string>;
+  /** Local vault directory names (= state keys). */
+  localVaults: Set<string>;
   /** Per-run cache for remote lookups by name / display_title. */
   remoteAgentByName: Map<string, RemoteAgent | null>;
   remoteSkillByTitle: Map<string, RemoteSkill | null>;
+  remoteEnvByName: Map<string, RemoteEnvironment | null>;
+  remoteVaultByName: Map<string, RemoteVault | null>;
 }
 
 export function buildResolutionContext(
   state: State,
   localAgents: Map<string, { config: AgentConfig; filePath: string }>,
   localSkills: Map<string, LocalSkill>,
+  localEnvironments: Iterable<string> = [],
+  localVaults: Iterable<string> = [],
 ): ResolutionContext {
   return {
     state,
     localAgents: new Map([...localAgents].map(([k, v]) => [k, v.config])),
     localSkills,
+    localEnvironments: new Set(localEnvironments),
+    localVaults: new Set(localVaults),
     remoteAgentByName: new Map(),
     remoteSkillByTitle: new Map(),
+    remoteEnvByName: new Map(),
+    remoteVaultByName: new Map(),
   };
 }
 
@@ -48,6 +73,8 @@ export function buildResolutionContext(
 
 const PENDING_AGENT_ID_PREFIX = '__cmaform_pending_agent__:';
 const PENDING_SKILL_ID_PREFIX = '__cmaform_pending_skill__:';
+const PENDING_ENV_ID_PREFIX = '__cmaform_pending_environment__:';
+const PENDING_VAULT_ID_PREFIX = '__cmaform_pending_vault__:';
 
 export function pendingAgentSentinel(name: string): string {
   return `${PENDING_AGENT_ID_PREFIX}${name}`;
@@ -55,6 +82,14 @@ export function pendingAgentSentinel(name: string): string {
 
 export function pendingSkillSentinel(name: string): string {
   return `${PENDING_SKILL_ID_PREFIX}${name}`;
+}
+
+export function pendingEnvironmentSentinel(name: string): string {
+  return `${PENDING_ENV_ID_PREFIX}${name}`;
+}
+
+export function pendingVaultSentinel(name: string): string {
+  return `${PENDING_VAULT_ID_PREFIX}${name}`;
 }
 
 export function extractPendingAgent(v: unknown): string | null {
@@ -67,6 +102,18 @@ export function extractPendingSkill(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   if (!v.startsWith(PENDING_SKILL_ID_PREFIX)) return null;
   return v.slice(PENDING_SKILL_ID_PREFIX.length);
+}
+
+export function extractPendingEnvironment(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  if (!v.startsWith(PENDING_ENV_ID_PREFIX)) return null;
+  return v.slice(PENDING_ENV_ID_PREFIX.length);
+}
+
+export function extractPendingVault(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  if (!v.startsWith(PENDING_VAULT_ID_PREFIX)) return null;
+  return v.slice(PENDING_VAULT_ID_PREFIX.length);
 }
 
 // ---------------- single-name resolution ----------------
@@ -196,6 +243,226 @@ export async function resolveSkillName(
   }
 
   return { kind: 'missing' };
+}
+
+export type RefResolution =
+  | { kind: 'resolved'; id: string }
+  | { kind: 'forward'; name: string; sentinel: string }
+  | { kind: 'missing' };
+
+export async function resolveEnvironmentName(
+  name: string,
+  ctx: ResolutionContext,
+): Promise<RefResolution> {
+  const tracked = ctx.state.environments[name];
+  if (tracked) return { kind: 'resolved', id: tracked.id };
+
+  let remote: RemoteEnvironment | null;
+  if (ctx.remoteEnvByName.has(name)) {
+    remote = ctx.remoteEnvByName.get(name)!;
+  } else {
+    remote = await findEnvironmentByName(name);
+    ctx.remoteEnvByName.set(name, remote);
+  }
+  if (remote) return { kind: 'resolved', id: remote.id };
+
+  if (ctx.localEnvironments.has(name)) {
+    return { kind: 'forward', name, sentinel: pendingEnvironmentSentinel(name) };
+  }
+
+  return { kind: 'missing' };
+}
+
+export async function resolveVaultName(
+  name: string,
+  ctx: ResolutionContext,
+): Promise<RefResolution> {
+  const tracked = ctx.state.vaults[name];
+  if (tracked) return { kind: 'resolved', id: tracked.id };
+
+  let remote: RemoteVault | null;
+  if (ctx.remoteVaultByName.has(name)) {
+    remote = ctx.remoteVaultByName.get(name)!;
+  } else {
+    // Best-effort remote fallback: match a vault whose display_name equals the
+    // referenced local name. Tracked state is the primary resolution source.
+    remote = await findVaultByDisplayName(name);
+    ctx.remoteVaultByName.set(name, remote);
+  }
+  if (remote) return { kind: 'resolved', id: remote.id };
+
+  if (ctx.localVaults.has(name)) {
+    return { kind: 'forward', name, sentinel: pendingVaultSentinel(name) };
+  }
+
+  return { kind: 'missing' };
+}
+
+// ---------------- deployment config transformation ----------------
+
+export interface ResolvedDeploymentConfig {
+  config: ResolvedDeployment;
+  /** Agent names that must be created before this deployment in the apply set. */
+  forwardAgentDeps: string[];
+  /** Environment names that must be created before this deployment. */
+  forwardEnvDeps: string[];
+  /** Vault names that must be created before this deployment. */
+  forwardVaultDeps: string[];
+  /** References that could not be resolved anywhere — fatal. */
+  missingRefs: string[];
+  /** Pinned-id-vs-name assertion failures — fatal. */
+  idMismatches: string[];
+}
+
+function normalizeAgentRef(agent: string | DeploymentAgentRef): DeploymentAgentRef {
+  if (typeof agent === 'string') {
+    return agent.startsWith('agent_') ? { id: agent } : { name: agent };
+  }
+  return agent;
+}
+
+/**
+ * Resolve a deployment's `agent` / `environment` / `vault_ids` name references
+ * into the id form the API expects, recording forward dependencies for any ref
+ * that points at a resource being created in the same apply set.
+ */
+export async function resolveDeploymentConfig(
+  config: DeploymentConfig,
+  ctx: ResolutionContext,
+): Promise<ResolvedDeploymentConfig> {
+  const forwardAgentDeps: string[] = [];
+  const forwardEnvDeps: string[] = [];
+  const forwardVaultDeps: string[] = [];
+  const missingRefs: string[] = [];
+  const idMismatches: string[] = [];
+
+  // ----- agent -----
+  const agentRef = normalizeAgentRef(config.agent);
+  let resolvedAgent: { id: string; version?: number };
+  if (agentRef.id) {
+    resolvedAgent = { id: agentRef.id, version: agentRef.version };
+    if (agentRef.name) {
+      const res = await resolveAgentName(agentRef.name, ctx);
+      if (res.kind === 'resolved' && res.id !== agentRef.id) {
+        idMismatches.push(
+          `agent "${agentRef.name}" pinned id=${agentRef.id}, resolved id=${res.id}`,
+        );
+      }
+    }
+  } else if (agentRef.name) {
+    const res = await resolveAgentName(agentRef.name, ctx);
+    if (res.kind === 'resolved') {
+      resolvedAgent = { id: res.id, version: agentRef.version };
+    } else if (res.kind === 'forward') {
+      forwardAgentDeps.push(agentRef.name);
+      resolvedAgent = { id: res.sentinel, version: agentRef.version };
+    } else {
+      missingRefs.push(`agent "${agentRef.name}"`);
+      resolvedAgent = { id: agentRef.name, version: agentRef.version };
+    }
+  } else {
+    missingRefs.push('agent (neither name nor id provided)');
+    resolvedAgent = { id: '' };
+  }
+
+  // ----- environment -----
+  let environmentId: string;
+  if (config.environment.startsWith('env_')) {
+    environmentId = config.environment;
+  } else {
+    const res = await resolveEnvironmentName(config.environment, ctx);
+    if (res.kind === 'resolved') {
+      environmentId = res.id;
+    } else if (res.kind === 'forward') {
+      forwardEnvDeps.push(config.environment);
+      environmentId = res.sentinel;
+    } else {
+      missingRefs.push(`environment "${config.environment}"`);
+      environmentId = config.environment;
+    }
+  }
+
+  // ----- vault_ids -----
+  let vaultIds: string[] | undefined;
+  if (Array.isArray(config.vault_ids) && config.vault_ids.length > 0) {
+    vaultIds = [];
+    for (const ref of config.vault_ids) {
+      if (typeof ref === 'string' && ref.startsWith('vlt_')) {
+        vaultIds.push(ref);
+        continue;
+      }
+      const res = await resolveVaultName(ref, ctx);
+      if (res.kind === 'resolved') {
+        vaultIds.push(res.id);
+      } else if (res.kind === 'forward') {
+        forwardVaultDeps.push(ref);
+        vaultIds.push(res.sentinel);
+      } else {
+        missingRefs.push(`vault "${ref}"`);
+        vaultIds.push(ref);
+      }
+    }
+  }
+
+  return {
+    config: {
+      name: config.name,
+      description: config.description,
+      agent: resolvedAgent,
+      environment_id: environmentId,
+      initial_events: config.initial_events,
+      schedule: config.schedule,
+      resources: config.resources,
+      vault_ids: vaultIds,
+      metadata: config.metadata,
+    },
+    forwardAgentDeps,
+    forwardEnvDeps,
+    forwardVaultDeps,
+    missingRefs,
+    idMismatches,
+  };
+}
+
+/**
+ * Replace forward-dependency sentinels in a resolved deployment with the
+ * freshly-issued ids once those dependencies have been created. Called just
+ * before `createDeployment` / `updateDeployment`.
+ */
+export function substitutePendingDeploymentIds(
+  config: ResolvedDeployment,
+  createdAgents: Map<string, string>,
+  createdEnvironments: Map<string, string>,
+  createdVaults: Map<string, string>,
+): ResolvedDeployment {
+  const out: ResolvedDeployment = { ...config };
+
+  const pendingAgent = extractPendingAgent(out.agent.id);
+  if (pendingAgent) {
+    const id = createdAgents.get(pendingAgent);
+    if (!id) throw new Error(`internal: agent "${pendingAgent}" referenced but not yet created`);
+    out.agent = { ...out.agent, id };
+  }
+
+  const pendingEnv = extractPendingEnvironment(out.environment_id);
+  if (pendingEnv) {
+    const id = createdEnvironments.get(pendingEnv);
+    if (!id)
+      throw new Error(`internal: environment "${pendingEnv}" referenced but not yet created`);
+    out.environment_id = id;
+  }
+
+  if (Array.isArray(out.vault_ids)) {
+    out.vault_ids = out.vault_ids.map((v) => {
+      const pendingVault = extractPendingVault(v);
+      if (!pendingVault) return v;
+      const id = createdVaults.get(pendingVault);
+      if (!id) throw new Error(`internal: vault "${pendingVault}" referenced but not yet created`);
+      return id;
+    });
+  }
+
+  return out;
 }
 
 // ---------------- config transformation ----------------
@@ -485,6 +752,10 @@ export function prettifySentinelsForDisplay(value: unknown): unknown {
     if (a) return `<pending: agent "${a}">`;
     const s = extractPendingSkill(value);
     if (s) return `<pending: skill "${s}">`;
+    const e = extractPendingEnvironment(value);
+    if (e) return `<pending: environment "${e}">`;
+    const v = extractPendingVault(value);
+    if (v) return `<pending: vault "${v}">`;
   }
   return value;
 }

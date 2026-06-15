@@ -91,6 +91,7 @@ describe('computePlan', () => {
       memory_stores: {},
       environments: {},
       vaults: {},
+      deployments: {},
     };
     const childConfig: AgentConfig = { name: 'spec-qa', system: 'new prompt' };
     const coordinatorConfig: AgentConfig = {
@@ -134,6 +135,7 @@ describe('computePlan', () => {
       new Map(),
       new Map(),
       new Map(),
+      new Map(), // deployments
       new Map([
         [
           'spec-qa',
@@ -160,6 +162,7 @@ describe('computePlan', () => {
           },
         ],
       ]),
+      new Map(), // deploymentResolutions
     );
 
     const coordinatorUpdate = actions.find(
@@ -183,6 +186,7 @@ describe('computePlan', () => {
       memory_stores: {},
       environments: {},
       vaults: {},
+      deployments: {},
     };
     const childConfig: AgentConfig = { name: 'spec-qa', system: 'new prompt' };
     const coordinatorConfig: AgentConfig = {
@@ -232,6 +236,7 @@ describe('computePlan', () => {
       new Map(),
       new Map(),
       new Map(),
+      new Map(), // deployments
       new Map([
         [
           'spec-qa',
@@ -263,6 +268,7 @@ describe('computePlan', () => {
           },
         ],
       ]),
+      new Map(), // deploymentResolutions
     );
 
     const coordinatorUpdate = actions.find(
@@ -285,6 +291,7 @@ describe('computePlan', () => {
       memory_stores: {},
       environments: {},
       vaults: {},
+      deployments: {},
     };
     const childConfig: AgentConfig = { name: 'spec-qa', system: 'new prompt' };
     const coordinatorConfig: AgentConfig = {
@@ -330,6 +337,7 @@ describe('computePlan', () => {
       new Map(),
       new Map(),
       new Map(),
+      new Map(), // deployments
       new Map([
         [
           'spec-qa',
@@ -356,6 +364,7 @@ describe('computePlan', () => {
           },
         ],
       ]),
+      new Map(), // deploymentResolutions
       { targets: ['coordinator'] },
     );
 
@@ -381,6 +390,7 @@ describe('computePlan', () => {
       memory_stores: {},
       environments: {},
       vaults: {},
+      deployments: {},
     };
     const aConfig: AgentConfig = { name: 'a', system: 'new prompt' };
     const bConfig: AgentConfig = {
@@ -428,6 +438,7 @@ describe('computePlan', () => {
       new Map(),
       new Map(),
       new Map(),
+      new Map(), // deployments
       new Map([
         [
           'a',
@@ -466,6 +477,7 @@ describe('computePlan', () => {
           },
         ],
       ]),
+      new Map(), // deploymentResolutions
     );
 
     const updates = actions.filter(

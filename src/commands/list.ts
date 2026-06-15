@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { listAgents, loadAllAgentConfigs } from '../lib/agents.js';
 import { CMAFORM_DIR } from '../lib/config.js';
+import { listDeployments, loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { listEnvironments, loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { listMemoryStores, loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { listVaults, loadAllVaultConfigs } from '../lib/vaults.js';
@@ -15,6 +16,7 @@ export async function cmdList(): Promise<number> {
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
   const vaults = await loadAllVaultConfigs();
+  const deployments = await loadAllDeploymentConfigs();
 
   console.log('=== local agents ===');
   if (configs.size === 0) console.log('  (none)');
@@ -143,6 +145,33 @@ export async function cmdList(): Promise<number> {
     console.log(`  (fetch failed: ${(err as Error).message})`);
   }
   if (remoteVaultCount === 0) console.log('  (none)');
+
+  console.log('\n=== local deployments ===');
+  if (deployments.size === 0) console.log('  (none)');
+  for (const [localName, { config, dirPath }] of deployments) {
+    const tracked = state.deployments[localName];
+    const idStr = tracked ? `id=${tracked.id}` : 'untracked';
+    console.log(
+      `  ${path.relative(CMAFORM_DIR, dirPath)}  name=${JSON.stringify(config.name)}  ${idStr}`,
+    );
+  }
+
+  console.log('\n=== remote deployments ===');
+  let remoteDeployCount = 0;
+  try {
+    const remoteDeployments = await listDeployments();
+    for (const d of remoteDeployments) {
+      if (d.archived_at) continue;
+      const tracked = Object.values(state.deployments).some((s) => s.id === d.id);
+      console.log(
+        `  ${JSON.stringify(d.name)}  id=${d.id}${d.schedule ? `  schedule=${JSON.stringify(d.schedule.expression)}` : ''}${tracked ? '' : '  (untracked)'}`,
+      );
+      remoteDeployCount++;
+    }
+  } catch (err) {
+    console.log(`  (fetch failed: ${(err as Error).message})`);
+  }
+  if (remoteDeployCount === 0) console.log('  (none)');
 
   return 0;
 }

@@ -3,6 +3,11 @@ import path from 'node:path';
 import { findAgentByName, retrieveAgent } from '../lib/agents.js';
 import { STATE_PATH } from '../lib/config.js';
 import {
+  findDeploymentByName,
+  loadAllDeploymentConfigs,
+  retrieveDeployment,
+} from '../lib/deployments.js';
+import {
   listEnvironments,
   loadAllEnvironmentConfigs,
   retrieveEnvironment,
@@ -34,6 +39,7 @@ export async function cmdInit(): Promise<number> {
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
   const vaults = await loadAllVaultConfigs();
+  const deployments = await loadAllDeploymentConfigs();
 
   let changed = 0;
 
@@ -218,6 +224,37 @@ export async function cmdInit(): Promise<number> {
       };
       process.stdout.write(
         `  [+] discovered vault: ${JSON.stringify(localName)} (id=${remote.id})\n`,
+      );
+      changed++;
+    }
+  }
+
+  // ----- deployments -----
+  for (const [localName, entry] of Object.entries(state.deployments)) {
+    const remote = await retrieveDeployment(entry.id);
+    if (!remote || remote.archived_at) {
+      delete state.deployments[localName];
+      process.stdout.write(
+        `  [-] removed from state: deployment ${JSON.stringify(localName)} (id=${entry.id} is archived or missing)\n`,
+      );
+      changed++;
+      continue;
+    }
+    if (remote.name !== entry.name) {
+      state.deployments[localName] = { id: entry.id, name: remote.name };
+      process.stdout.write(
+        `  [~] deployment name refreshed: ${JSON.stringify(localName)} (${JSON.stringify(entry.name)} -> ${JSON.stringify(remote.name)})\n`,
+      );
+      changed++;
+    }
+  }
+  for (const [localName, { config }] of deployments) {
+    if (state.deployments[localName]) continue;
+    const remote = await findDeploymentByName(config.name);
+    if (remote) {
+      state.deployments[localName] = { id: remote.id, name: remote.name };
+      process.stdout.write(
+        `  [+] discovered deployment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
       );
       changed++;
     }

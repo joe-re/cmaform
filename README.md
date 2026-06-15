@@ -10,7 +10,7 @@
   English | <a href="./README.ja.md">日本語</a>
 </p>
 
-**cmaform** is a Terraform-style CLI for managing **Claude Managed Agents and their surrounding resources** — agents, skills, memory stores, environments, and vaults — as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
+**cmaform** is a Terraform-style CLI for managing **Claude Managed Agents and their surrounding resources** — agents, skills, memory stores, environments, vaults, and deployments — as files in your repo. You declare each resource as a YAML file, run `cmaform plan` to see what will change, and `cmaform apply` to ship it.
 
 ```text
   [~] update agent       "release-prep" (id=agent_01Qx..., version=6)
@@ -29,6 +29,7 @@ Plan (skills):         1 to add, 0 to change, 0 to delete, 0 unchanged.
 Plan (memory_stores):  0 to add, 0 to change, 0 to archive, 0 unchanged.
 Plan (environments):   0 to add, 0 to change, 0 to archive, 1 unchanged.
 Plan (vaults):         0 to archive, 1 unchanged.
+Plan (deployments):    0 to add, 0 to change, 0 to archive, 1 unchanged.
 ```
 
 ## ⚡ Quick Start
@@ -56,21 +57,21 @@ cmaform plan                                  # show the diff
 cmaform apply                                 # confirm → push to Anthropic
 ```
 
-> Claude Managed Agents and related APIs for Skills / Memory Stores / Environments / Vaults are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` endpoints directly.
+> Claude Managed Agents and related APIs for Skills / Memory Stores / Environments / Vaults / Deployments are currently **beta**. cmaform calls `@anthropic-ai/sdk`'s `beta.agents.*` / `beta.skills.*` / `beta.memoryStores.*` / `beta.environments.*` / `beta.vaults.*` / `beta.deployments.*` endpoints directly.
 
 ## 🚀 Usage
 
 ### Commands
 
-| Command                                                 | What it does                                                                                                                                                                                                                                          |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmaform pull <id> [--by-id]`                           | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting `multiagent.agents[]` / `skills[]` to the name form |
-| `cmaform plan [--verbose\|-v] [target...]`              | Diff local YAML / state / remote and print a Terraform-style plan. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                    |
-| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                                |
-| `cmaform sync [--by-id]`                                | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form                                                                                 |
-| `cmaform init`                                          | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`)                                                                                                                                                   |
-| `cmaform list`                                          | Show local files / state / remote side-by-side                                                                                                                                                                                                        |
-| `cmaform fmt`                                           | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup                                                                                                            |
+| Command                                                 | What it does                                                                                                                                                                                                                                      |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmaform pull <id> [--by-id]`                           | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` / `deploy_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent / deployment YAML instead of rewriting refs to the name form |
+| `cmaform plan [--verbose\|-v] [target...]`              | Diff local YAML / state / remote and print a Terraform-style plan. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                |
+| `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                            |
+| `cmaform sync [--by-id]`                                | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form                                                                             |
+| `cmaform init`                                          | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`)                                                                                                                                               |
+| `cmaform list`                                          | Show local files / state / remote side-by-side                                                                                                                                                                                                    |
+| `cmaform fmt`                                           | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup                                                                                                        |
 
 ### Filtering plan / apply
 
@@ -93,6 +94,7 @@ A `<target>` is either a **kind alias** (matches every resource of that type) or
 | Memory Store | `memory_store` / `memory_stores` / `memstore` / `memstores` | directory name under `memory_stores/` | `team-notes` (`memory_stores/team-notes/`)              |
 | Environment  | `environment` / `environments` / `env` / `envs`             | directory name under `environments/`  | `python-dev` (`environments/python-dev/`)               |
 | Vault        | `vault` / `vaults`                                          | directory name under `vaults/`        | `my-bot` (`vaults/my-bot/`)                             |
+| Deployment   | `deployment` / `deployments` / `deploy` / `deploys`         | directory name under `deployments/`   | `nightly` (`deployments/nightly/`)                      |
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
 
@@ -106,13 +108,14 @@ cmaform pull skill_013uPS15B3Kw82NpjH4uNQep   # state only — SKILL.md is not r
 cmaform pull memstore_01ABC...                # writes memory_stores/<name>/manifest.yaml
 cmaform pull env_015G...                      # writes environments/<name>/manifest.yaml
 cmaform pull vlt_011CaQ...                    # writes vaults/<name>/manifest.yaml (credentials not managed yet)
+cmaform pull deploy_01Gk...                   # writes deployments/<name>/manifest.yaml + state
 ```
 
 Skill content is **not** returned by the Anthropic API once uploaded, so `pull` for skills only records the ID + version + display title into state. The local `SKILL.md` must be authored by you.
 
 ## 📦 Resources
 
-cmaform manages five resource types — **agents**, **skills**, **memory stores**, **environments**, and **vaults**. Each lives under its own top-level directory beneath the config root. (Create vaults with cmaform, then finish configuring them on the Anthropic Console.)
+cmaform manages six resource types — **agents**, **skills**, **memory stores**, **environments**, **vaults**, and **deployments**. Each lives under its own top-level directory beneath the config root. (Create vaults with cmaform, then finish configuring them on the Anthropic Console.)
 
 ### Agent (`agents/<name>.yaml`)
 
@@ -302,6 +305,49 @@ metadata:
   external_user_id: bot
 ```
 
+### Deployment (`deployments/<localName>/manifest.yaml`)
+
+A deployment binds an **agent** + **environment** + **initial events** + an optional **cron schedule** into one unit. The platform creates a session from the deployment on each schedule fire (and lets you trigger one on demand). This is how a managed agent runs on a schedule.
+
+```yaml
+name: nightly-triage # unique within the workspace
+description: optional
+# Reference an agent by name (resolved via state -> remote -> local apply set)
+# or by raw id. Omit `version` to track the latest at create time, or pin one.
+agent: release-prep
+# agent:
+#   name: release-prep
+#   version: 6
+environment: python-dev # environment name or env_... id
+# Events sent to each session immediately after creation (1–50).
+initial_events:
+  - type: user.message
+    content:
+      - type: text
+        text: Run the nightly triage.
+# Optional. 5-field POSIX cron (minute hour day-of-month month day-of-week).
+# Extended syntax (seconds/year, L W # ?, @daily) is NOT supported. Omit the
+# whole block for an on-demand (manual-run) deployment.
+schedule:
+  type: cron
+  expression: '0 9 * * 1-5' # 09:00 on weekdays
+  timezone: Asia/Tokyo # IANA timezone
+# Optional. Resources mounted into each session's container.
+resources: []
+# Optional. Vault names or vlt_... ids supplying stored credentials.
+vault_ids: []
+metadata: {}
+```
+
+- **Identity**: the `name` field. The `deployment_id` lives in state, not YAML.
+- **Diff fields**: `name` / `description` / `agent` / `environment_id` / `initial_events` / `schedule` / `resources` / `vault_ids` / `metadata`.
+- **References**: `agent` / `environment` / `vault_ids[]` accept logical **names** (resolved at plan/apply time, same rules as [Name-based references](#-name-based-references)) or raw ids. A name pointing at a resource being created in the **same apply run** is treated as a forward dependency — cmaform creates it first, then the deployment.
+- **Agent version**: omit `version` to track the latest at create time (version drift is then ignored in the diff). Pin a `version` to detect and re-pin changes.
+- **Delete**: present in state but missing locally ⇒ `archive` (one-way; the schedule stops firing).
+- **Out of scope**: the imperative `pause` / `unpause` / `run` transitions are not modeled declaratively — `status` is treated as remote-owned. `resources` containing write-only credentials (e.g. a GitHub `authorization_token`) are sent on create/update but stripped before diffing, so they never appear as a permanent change.
+
+See the [Anthropic Deployments docs](https://platform.claude.com/docs/en/managed-agents) for the full schema.
+
 ## 🗂️ Directory Layout
 
 cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
@@ -317,6 +363,8 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 ├── environments/
 │   └── <localName>/manifest.yaml
 ├── vaults/
+│   └── <localName>/manifest.yaml
+├── deployments/
 │   └── <localName>/manifest.yaml
 └── cmaform.state.json
 ```
@@ -344,6 +392,9 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
   },
   "vaults": {
     "my-bot": { "id": "vlt_01...", "display_name": "my-bot" }
+  },
+  "deployments": {
+    "nightly-triage": { "id": "deploy_01...", "name": "nightly-triage" }
   }
 }
 ```
@@ -379,7 +430,7 @@ node dist/cli.js --help
 ## 📋 Requirements
 
 - Node.js ≥ 22
-- An Anthropic API key with access to the Claude Managed Agents and related Skills / Memory Stores / Environments / Vaults beta APIs
+- An Anthropic API key with access to the Claude Managed Agents and related Skills / Memory Stores / Environments / Vaults / Deployments beta APIs
 
 ## 📄 License
 

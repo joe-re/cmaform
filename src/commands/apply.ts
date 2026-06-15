@@ -4,12 +4,19 @@ import { loadAllAgentConfigs } from '../lib/agents.js';
 import { colorizeMany, formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
+import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import { computePlan, filterActionsByTargets, hasChanges } from '../lib/plan.js';
 import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
-import { buildResolutionContext, resolveAgentConfig, type ResolvedConfig } from '../lib/resolve.js';
+import {
+  buildResolutionContext,
+  resolveAgentConfig,
+  resolveDeploymentConfig,
+  type ResolvedConfig,
+  type ResolvedDeploymentConfig,
+} from '../lib/resolve.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
@@ -28,8 +35,9 @@ export async function cmdApply(
   const memoryStores = await loadAllMemoryStoreConfigs();
   const environments = await loadAllEnvironmentConfigs();
   const vaults = await loadAllVaultConfigs();
+  const deployments = await loadAllDeploymentConfigs();
 
-  const ctx = buildResolutionContext(state, configs, skills);
+  const ctx = buildResolutionContext(state, configs, skills, environments.keys(), vaults.keys());
   const resolutions = new Map<string, ResolvedConfig>();
   const missing: string[] = [];
   const idMismatches: string[] = [];
@@ -39,6 +47,13 @@ export async function cmdApply(
     for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
     for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
     for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
+  }
+  const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
+  for (const [localName, { config }] of deployments) {
+    const r = await resolveDeploymentConfig(config, ctx);
+    deploymentResolutions.set(localName, r);
+    for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
+    for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
   }
   if (missing.length > 0) {
     process.stderr.write(
@@ -70,7 +85,9 @@ export async function cmdApply(
     memoryStores,
     environments,
     vaults,
+    deployments,
     resolutions,
+    deploymentResolutions,
     { targets },
   );
 
@@ -101,6 +118,8 @@ export async function cmdApply(
         inTarget.add(`environment:${(a as { localName: string }).localName}`);
       } else if (a.type.startsWith('vault_')) {
         inTarget.add(`vault:${(a as { localName: string }).localName}`);
+      } else if (a.type.startsWith('deploy_')) {
+        inTarget.add(`deployment:${(a as { localName: string }).localName}`);
       }
     }
     const droppedDeps: string[] = [];
@@ -114,6 +133,22 @@ export async function cmdApply(
         for (const dep of a.forwardSkillDeps) {
           if (!inTarget.has(`skill:${dep}`)) {
             droppedDeps.push(`agent "${a.name}" -> skill "${dep}"`);
+          }
+        }
+      } else if (a.type === 'deploy_create' || a.type === 'deploy_update') {
+        for (const dep of a.forwardAgentDeps) {
+          if (!inTarget.has(`agent:${dep}`)) {
+            droppedDeps.push(`deployment "${a.localName}" -> agent "${dep}"`);
+          }
+        }
+        for (const dep of a.forwardEnvDeps) {
+          if (!inTarget.has(`environment:${dep}`)) {
+            droppedDeps.push(`deployment "${a.localName}" -> environment "${dep}"`);
+          }
+        }
+        for (const dep of a.forwardVaultDeps) {
+          if (!inTarget.has(`vault:${dep}`)) {
+            droppedDeps.push(`deployment "${a.localName}" -> vault "${dep}"`);
           }
         }
       }
@@ -188,6 +223,12 @@ export async function cmdApply(
             id: a.id,
             display_name: a.display_name,
           };
+          stateChanged = true;
+        }
+      } else if (a.type === 'deploy_noop') {
+        const existing = state.deployments[a.localName];
+        if (!existing || existing.id !== a.id || existing.name !== a.name) {
+          state.deployments[a.localName] = { id: a.id, name: a.name };
           stateChanged = true;
         }
       }

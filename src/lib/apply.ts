@@ -1,10 +1,11 @@
 import * as readline from 'node:readline/promises';
 
 import { archiveAgent, createAgent, toApplyParams, updateAgent } from './agents.js';
+import { archiveDeployment, createDeployment, updateDeployment } from './deployments.js';
 import { archiveEnvironment, createEnvironment, updateEnvironment } from './environments.js';
 import { archiveMemoryStore, createMemoryStore, updateMemoryStore } from './memory-stores.js';
 import type { Action } from './plan.js';
-import { substitutePendingIds } from './resolve.js';
+import { substitutePendingDeploymentIds, substitutePendingIds } from './resolve.js';
 import { archiveSkill, createSkill, uploadSkillVersion } from './skills.js';
 import type { State } from './types.js';
 import { archiveVault, createVault } from './vaults.js';
@@ -16,6 +17,10 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   const createdAgents = new Map<string, string>();
   const createdAgentVersions = new Map<string, number>();
   const createdSkills = new Map<string, string>();
+  // Forward-dependency targets for deployments: agent / environment / vault
+  // ids known so far (seeded from state, extended as resources are created).
+  const createdEnvironments = new Map<string, string>();
+  const createdVaults = new Map<string, string>();
 
   // For agents/skills that already existed at plan time but are being
   // updated in this run, their ids are already in resolution context →
@@ -27,6 +32,12 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   }
   for (const [localName, entry] of Object.entries(state.skills)) {
     createdSkills.set(localName, entry.id);
+  }
+  for (const [localName, entry] of Object.entries(state.environments)) {
+    createdEnvironments.set(localName, entry.id);
+  }
+  for (const [localName, entry] of Object.entries(state.vaults)) {
+    createdVaults.set(localName, entry.id);
   }
 
   for (const a of actions) {
@@ -59,6 +70,10 @@ export async function executeActions(actions: Action[], state: State): Promise<v
         id: a.id,
         display_name: a.display_name,
       };
+      continue;
+    }
+    if (a.type === 'deploy_noop') {
+      state.deployments[a.localName] = { id: a.id, name: a.name };
       continue;
     }
 
@@ -149,6 +164,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
         process.stdout.write(`  [+] creating environment ${JSON.stringify(a.localName)}...`);
         const created = await createEnvironment(a.config);
         state.environments[a.localName] = { id: created.id, name: created.name };
+        createdEnvironments.set(a.localName, created.id);
         process.stdout.write(` ok (id=${created.id})\n`);
       } else if (a.type === 'env_update') {
         process.stdout.write(`  [~] updating environment ${JSON.stringify(a.localName)}...`);
@@ -167,11 +183,39 @@ export async function executeActions(actions: Action[], state: State): Promise<v
           id: created.id,
           display_name: created.display_name,
         };
+        createdVaults.set(a.localName, created.id);
         process.stdout.write(` ok (id=${created.id})\n`);
       } else if (a.type === 'vault_archive') {
         process.stdout.write(`  [-] archiving vault ${JSON.stringify(a.localName)}...`);
         await archiveVault(a.id);
         delete state.vaults[a.localName];
+        process.stdout.write(` ok\n`);
+      } else if (a.type === 'deploy_create') {
+        process.stdout.write(`  [+] creating deployment ${JSON.stringify(a.localName)}...`);
+        const finalConfig = substitutePendingDeploymentIds(
+          a.config,
+          createdAgents,
+          createdEnvironments,
+          createdVaults,
+        );
+        const created = await createDeployment(finalConfig);
+        state.deployments[a.localName] = { id: created.id, name: created.name };
+        process.stdout.write(` ok (id=${created.id})\n`);
+      } else if (a.type === 'deploy_update') {
+        process.stdout.write(`  [~] updating deployment ${JSON.stringify(a.localName)}...`);
+        const finalConfig = substitutePendingDeploymentIds(
+          a.config,
+          createdAgents,
+          createdEnvironments,
+          createdVaults,
+        );
+        const updated = await updateDeployment(a.id, finalConfig, a.remote, a.diffs);
+        state.deployments[a.localName] = { id: updated.id, name: updated.name };
+        process.stdout.write(` ok\n`);
+      } else if (a.type === 'deploy_archive') {
+        process.stdout.write(`  [-] archiving deployment ${JSON.stringify(a.localName)}...`);
+        await archiveDeployment(a.id);
+        delete state.deployments[a.localName];
         process.stdout.write(` ok\n`);
       }
     } catch (err) {

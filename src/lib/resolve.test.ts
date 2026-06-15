@@ -32,6 +32,28 @@ vi.mock('./skills.js', async (importOriginal) => {
     }),
   };
 });
+vi.mock('./environments.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./environments.js')>();
+  return {
+    ...actual,
+    findEnvironmentByName: vi.fn((name: string) => {
+      throw new Error(
+        `findEnvironmentByName(${JSON.stringify(name)}) should not be reached in tests — use state or env_ ids.`,
+      );
+    }),
+  };
+});
+vi.mock('./vaults.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./vaults.js')>();
+  return {
+    ...actual,
+    findVaultByDisplayName: vi.fn((name: string) => {
+      throw new Error(
+        `findVaultByDisplayName(${JSON.stringify(name)}) should not be reached in tests — use state or vlt_ ids.`,
+      );
+    }),
+  };
+});
 
 import { retrieveAgent } from './agents.js';
 import {
@@ -40,12 +62,20 @@ import {
   pendingAgentSentinel,
   pendingSkillSentinel,
   resolveAgentConfig,
+  resolveDeploymentConfig,
   rewriteAgentRefsToNameForm,
   rewriteSkillRefsToNameForm,
   substitutePendingIds,
   type ResolutionContext,
 } from './resolve.js';
-import type { AgentConfig, LocalSkill, RemoteAgent, RemoteSkill, State } from './types.js';
+import type {
+  AgentConfig,
+  DeploymentConfig,
+  LocalSkill,
+  RemoteAgent,
+  RemoteSkill,
+  State,
+} from './types.js';
 
 beforeEach(() => {
   vi.mocked(retrieveAgent).mockReset();
@@ -59,6 +89,7 @@ function emptyState(): State {
     memory_stores: {},
     environments: {},
     vaults: {},
+    deployments: {},
   };
 }
 
@@ -76,8 +107,12 @@ function makeCtx(
     state: opts.state ?? emptyState(),
     localAgents: new Map(Object.entries(opts.localAgents ?? {})),
     localSkills: new Map(Object.entries(opts.localSkills ?? {})),
+    localEnvironments: new Set(),
+    localVaults: new Set(),
     remoteAgentByName: new Map(Object.entries(opts.remoteAgents ?? {})),
     remoteSkillByTitle: new Map(Object.entries(opts.remoteSkills ?? {})),
+    remoteEnvByName: new Map(),
+    remoteVaultByName: new Map(),
   };
 }
 
@@ -510,5 +545,90 @@ describe('writeback helpers', () => {
       { type: 'custom', name: 'slack-mention-lookup' },
       { type: 'anthropic', skill_id: 'xlsx' },
     ]);
+  });
+});
+
+describe('resolveDeploymentConfig', () => {
+  function baseDeployment(overrides: Partial<DeploymentConfig> = {}): DeploymentConfig {
+    return {
+      name: 'nightly',
+      agent: 'spec-qa',
+      environment: 'python-dev',
+      initial_events: [{ type: 'user.message', content: [{ type: 'text', text: 'go' }] }],
+      ...overrides,
+    };
+  }
+
+  it('resolves agent + environment names to ids via state', async () => {
+    const state = emptyState();
+    state.agents['spec-qa'] = { id: 'agent_1', version: 3 };
+    state.environments['python-dev'] = { id: 'env_1', name: 'python-dev' };
+    const ctx = makeCtx({ state, remoteAgents: { 'spec-qa': null } });
+
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.config.agent).toEqual({ id: 'agent_1', version: undefined });
+    expect(r.config.environment_id).toBe('env_1');
+    expect(r.forwardAgentDeps).toEqual([]);
+    expect(r.forwardEnvDeps).toEqual([]);
+    expect(r.missingRefs).toEqual([]);
+  });
+
+  it('passes raw agent_/env_/vlt_ ids through untouched', async () => {
+    const ctx = makeCtx();
+    const r = await resolveDeploymentConfig(
+      baseDeployment({
+        agent: { id: 'agent_raw', version: 2 },
+        environment: 'env_raw',
+        vault_ids: ['vlt_raw'],
+      }),
+      ctx,
+    );
+    expect(r.config.agent).toEqual({ id: 'agent_raw', version: 2 });
+    expect(r.config.environment_id).toBe('env_raw');
+    expect(r.config.vault_ids).toEqual(['vlt_raw']);
+    expect(r.missingRefs).toEqual([]);
+  });
+
+  it('records forward dependencies for resources created in the same apply set', async () => {
+    // Pre-seed the remote caches to `null` so resolution falls through to the
+    // local apply set instead of hitting the (mocked, throwing) remote lookups.
+    const ctx = makeCtx({
+      localAgents: { 'spec-qa': { name: 'spec-qa' } },
+      remoteAgents: { 'spec-qa': null },
+    });
+    ctx.remoteEnvByName.set('python-dev', null);
+    ctx.remoteVaultByName.set('bot-vault', null);
+    ctx.localEnvironments.add('python-dev');
+    ctx.localVaults.add('bot-vault');
+
+    const r = await resolveDeploymentConfig(baseDeployment({ vault_ids: ['bot-vault'] }), ctx);
+    expect(r.forwardAgentDeps).toEqual(['spec-qa']);
+    expect(r.forwardEnvDeps).toEqual(['python-dev']);
+    expect(r.forwardVaultDeps).toEqual(['bot-vault']);
+    expect(extractPendingAgent(r.config.agent.id)).toBe('spec-qa');
+    expect(r.config.environment_id).toContain('python-dev');
+    expect(r.missingRefs).toEqual([]);
+  });
+
+  it('reports unresolved references as missing', async () => {
+    const ctx = makeCtx({ remoteAgents: { 'spec-qa': null } });
+    ctx.remoteEnvByName.set('no-such-env', null);
+    const r = await resolveDeploymentConfig(baseDeployment({ environment: 'no-such-env' }), ctx);
+    // agent is missing (not in state, remote null, not local) and so is the env.
+    expect(r.missingRefs).toContain('agent "spec-qa"');
+    expect(r.missingRefs).toContain('environment "no-such-env"');
+  });
+
+  it('flags a pinned-id-vs-name mismatch', async () => {
+    const state = emptyState();
+    state.agents['spec-qa'] = { id: 'agent_1', version: 3 };
+    state.environments['python-dev'] = { id: 'env_1', name: 'python-dev' };
+    const ctx = makeCtx({ state, remoteAgents: { 'spec-qa': null } });
+
+    const r = await resolveDeploymentConfig(
+      baseDeployment({ agent: { name: 'spec-qa', id: 'agent_WRONG' } }),
+      ctx,
+    );
+    expect(r.idMismatches).toEqual(['agent "spec-qa" pinned id=agent_WRONG, resolved id=agent_1']);
   });
 });
