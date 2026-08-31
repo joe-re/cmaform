@@ -1,4 +1,4 @@
 [tools]
 node = "26.3.0"
 pnpm = "11.7.0"
-lefthook = "2.1.9"
+lefthook = "2.1.12"
