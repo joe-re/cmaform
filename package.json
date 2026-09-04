@@ -52,7 +52,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.123.0",
     "yaml": "^2.6.0"
   },
   "devDependencies": {
