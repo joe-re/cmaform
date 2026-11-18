@@ -1,23 +1,7 @@
-import { loadAllAgentConfigs } from '../lib/agents.js';
-import { formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
-import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
-import { loadAllEnvironmentConfigs } from '../lib/environments.js';
-import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import { computePlan, type Action, filterActionsByTargets } from '../lib/plan.js';
-import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
-import {
-  buildResolutionContext,
-  resolveAgentConfig,
-  resolveDeploymentConfig,
-  type ResolvedConfig,
-  type ResolvedDeploymentConfig,
-} from '../lib/resolve.js';
-import { loadAllSkillConfigs } from '../lib/skills.js';
 import { topoSortActions } from '../lib/topo-sort.js';
-import { loadAllVaultConfigs } from '../lib/vaults.js';
-import { createRemoteLookup } from '../lib/remote-lookup.js';
-import { reportAmbiguousRemoteName } from './ambiguous-remote.js';
+import { attachDanglingReferenceWarnings } from '../lib/warnings.js';
+import { runPlanPipeline } from './plan-pipeline.js';
 import { loadStateForPlanApply } from './state-precondition.js';
 
 export async function cmdPlan(
@@ -26,102 +10,10 @@ export async function cmdPlan(
 ): Promise<number> {
   const state = await loadStateForPlanApply('plan');
   if (!state) return 2;
-  const configs = await loadAllAgentConfigs();
-  const skills = await loadAllSkillConfigs();
-  const memoryStores = await loadAllMemoryStoreConfigs();
-  const environments = await loadAllEnvironmentConfigs();
-  const vaults = await loadAllVaultConfigs();
-  const deployments = await loadAllDeploymentConfigs();
-
-  // Resolve every agent's `multiagent.agents[]` and `skills[]` references
-  // (name → id, with forward-dep sentinels for refs that point inside this
-  // apply set). Done before computePlan so that diff comparison sees the
-  // resolved id form against remote.
-  // One lookup is shared by reference resolution and the plan so each remote
-  // kind is listed at most once.
-  const lookup = createRemoteLookup();
-  let allActions: Action[];
-  const resolutions = new Map<string, ResolvedConfig>();
-  const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
-  try {
-    const ctx = buildResolutionContext({
-      state,
-      agents: configs,
-      skills,
-      environments,
-      vaults,
-      memoryStores,
-      lookup,
-    });
-    const missing: string[] = [];
-    const idMismatches: string[] = [];
-    for (const [name, { config }] of configs) {
-      const r = await resolveAgentConfig(config, ctx);
-      resolutions.set(name, r);
-      for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
-      for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
-      for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
-    }
-    for (const [localName, { config }] of deployments) {
-      const r = await resolveDeploymentConfig(config, ctx);
-      deploymentResolutions.set(localName, r);
-      for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
-      for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
-    }
-    if (missing.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          'the following name-based references could not be resolved (not in state, remote, or local config):',
-        ) + '\n',
-      );
-      for (const m of missing) {
-        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
-      }
-      return 2;
-    }
-    if (idMismatches.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):',
-        ) + '\n',
-      );
-      for (const m of idMismatches) {
-        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
-      }
-      return 2;
-    }
-
-    allActions = await computePlan(
-      state,
-      configs,
-      skills,
-      memoryStores,
-      environments,
-      vaults,
-      deployments,
-      resolutions,
-      deploymentResolutions,
-      { targets, lookup },
-    );
-  } catch (err) {
-    reportAmbiguousRemoteName(err);
-    return 2;
-  }
-
-  let actions = allActions;
-  if (targets.length > 0) {
-    const { filtered, unmatched } = filterActionsByTargets(allActions, targets);
-    if (unmatched.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map((t) => JSON.stringify(t)).join(', ')}`,
-        ) + '\n',
-      );
-      return 2;
-    }
-    actions = filtered;
-    process.stdout.write(`(filter: ${targets.map((t) => JSON.stringify(t)).join(', ')})\n`);
-  }
+  const planned = await runPlanPipeline(state, targets);
+  if (!planned.ok) return planned.exitCode;
+  const { resolutions } = planned;
+  let actions = planned.actions;
 
   // Print in apply order — surfaces dependency-induced ordering during
   // bootstrap (skills/sub-agents before their dependents).
