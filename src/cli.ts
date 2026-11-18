@@ -33,7 +33,7 @@ function showHelp(): void {
       `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
       `                                    # show plan, prompt for confirmation, apply (target = kind, resource name, or kind:name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +
-      `  cmaform fmt                       # rewrite multiagent.agents[].id / skills[].skill_id in local YAML to the name form using state\n` +
+      `  cmaform fmt                       # rewrite multiagent.agents[].id / skills[].skill_id in agent YAML and resources[].memory_store_id in deployment manifests to the name form using state\n` +
       `\n` +
       `Environment:\n` +
       `  ANTHROPIC_API_KEY                 (required) Anthropic API key\n` +

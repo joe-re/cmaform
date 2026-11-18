@@ -41,6 +41,21 @@ async function listDeploymentDirs(): Promise<string[]> {
   }
 }
 
+/** Paths of every `deployments/<name>/manifest.yaml` that exists. */
+export async function listDeploymentManifestFiles(): Promise<string[]> {
+  const files: string[] = [];
+  for (const dirPath of await listDeploymentDirs()) {
+    const manifestPath = path.join(dirPath, DEPLOYMENT_MANIFEST_FILENAME);
+    try {
+      await fs.access(manifestPath);
+      files.push(manifestPath);
+    } catch {
+      // a directory without a manifest is reported elsewhere
+    }
+  }
+  return files;
+}
+
 async function readDeploymentManifest(dirPath: string): Promise<DeploymentConfig> {
   const manifestPath = path.join(dirPath, DEPLOYMENT_MANIFEST_FILENAME);
   let content: string;
