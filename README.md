@@ -68,10 +68,10 @@ cmaform apply                                 # confirm → push to Anthropic
 | `cmaform pull <id> [--by-id]`                           | Import a remote resource by ID (`agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` / `deploy_*`) into local files + state. Pass `--by-id` to keep raw IDs in the written agent / deployment YAML instead of rewriting refs to the name form |
 | `cmaform plan [--verbose\|-v] [target...]`              | Diff local YAML / state / remote and print a Terraform-style plan. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | Show plan, prompt for confirmation, apply, save state. Requires an existing `cmaform.state.json` from `init` or `pull`                                                                                                                            |
-| `cmaform sync [--by-id]`                                | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent YAML instead of rewriting refs to the name form                                                                             |
+| `cmaform sync [--by-id]`                                | Re-fetch every entry in state from remote and rewrite local YAML. Pass `--by-id` to keep raw IDs in the written agent / deployment YAML instead of rewriting refs to the name form                                                                |
 | `cmaform init`                                          | Initialize / reconcile the state file against remote (no remote writes; spirit of `terraform init`)                                                                                                                                               |
 | `cmaform list`                                          | Show local files / state / remote side-by-side                                                                                                                                                                                                    |
-| `cmaform fmt`                                           | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in local YAML to the name form, using `cmaform.state.json` for the id → name lookup                                                                                                        |
+| `cmaform fmt`                                           | Rewrite `multiagent.agents[].id` / `skills[].skill_id` in agent YAML and `resources[].memory_store_id` in deployment manifests to the name form, using `cmaform.state.json` for the id → name lookup                                              |
 
 ### Filtering plan / apply
 
@@ -336,7 +336,10 @@ schedule:
   expression: '0 9 * * 1-5' # 09:00 on weekdays
   timezone: Asia/Tokyo # IANA timezone
 # Optional. Resources mounted into each session's container.
-resources: []
+resources:
+  - type: memory_store
+    memory_store: team-notes # memory_stores/ directory name, or memory_store_id: memstore_...
+    access: read_write
 # Optional. Vault names or vlt_... ids supplying stored credentials.
 vault_ids: []
 metadata: {}
@@ -344,7 +347,7 @@ metadata: {}
 
 - **Identity**: the `name` field. The `deployment_id` lives in state, not YAML.
 - **Diff fields**: `name` / `description` / `agent` / `environment_id` / `initial_events` / `schedule` / `resources` / `vault_ids` / `metadata`.
-- **References**: `agent` / `environment` / `vault_ids[]` accept logical **names** (resolved at plan/apply time, same rules as [Name-based references](#-name-based-references)) or raw ids. A name pointing at a resource being created in the **same apply run** is treated as a forward dependency — cmaform creates it first, then the deployment.
+- **References**: `agent` / `environment` / `vault_ids[]` / `resources[].memory_store` accept logical **names** (resolved at plan/apply time, same rules as [Name-based references](#-name-based-references)) or raw ids. A name pointing at a resource being created in the **same apply run** is treated as a forward dependency — cmaform creates it first, then the deployment.
 - **Agent version**: omit `version` to track the latest at create time (version drift is then ignored in the diff). Pin a `version` to detect and re-pin changes.
 - **Delete**: present in state but missing locally ⇒ `archive` (one-way; the schedule stops firing).
 - **Out of scope**: the imperative `pause` / `unpause` / `run` transitions are not modeled declaratively — `status` is treated as remote-owned. `resources` containing write-only credentials (e.g. a GitHub `authorization_token`) are sent on create/update but stripped before diffing, so they never appear as a permanent change.

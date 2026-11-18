@@ -13,6 +13,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `deployment:nightly`) to select one resource when several kinds share a name.
   Any kind alias works as the qualifier; bare names and bare kinds behave as
   before (#35).
+- A deployment's `resources[]` accepts `memory_store: <localName>` on
+  `type: memory_store` entries, resolved like environments and vaults. A store
+  created in the same `apply` run is created first. `pull` / `sync` / `fmt`
+  write the name form back for ids tracked in state (#32).
 
 ### Changed
 
@@ -23,6 +27,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- `cmaform pull <deploy_id> --by-id` ignored `--by-id` and rewrote refs to the
+  name form anyway (#32).
 - `cmaform init` now creates `cmaform.state.json` in a fresh project even when
   there is nothing to reconcile, so `plan` / `apply` no longer demand an `init`
   that never produces the file (#30).
