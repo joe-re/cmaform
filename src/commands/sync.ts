@@ -3,31 +3,30 @@ import path from 'node:path';
 import { retrieveAgent, writeAgentYamlFromRemote } from '../lib/agents.js';
 import { CMAFORM_DIR, STATE_PATH } from '../lib/config.js';
 import {
-  findDeploymentByName,
   loadAllDeploymentConfigs,
   retrieveDeployment,
   writeDeploymentManifestFromRemote,
 } from '../lib/deployments.js';
 import {
-  listEnvironments,
   loadAllEnvironmentConfigs,
   retrieveEnvironment,
   writeEnvironmentManifestFromRemote,
 } from '../lib/environments.js';
 import {
-  listMemoryStores,
   loadAllMemoryStoreConfigs,
   retrieveMemoryStore,
   writeMemoryStoreManifestFromRemote,
 } from '../lib/memory-stores.js';
+import { loadAllVaultConfigs, retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
 import {
-  listVaults,
-  loadAllVaultConfigs,
-  retrieveVault,
-  writeVaultManifestFromRemote,
-} from '../lib/vaults.js';
-import { findSkillByDisplayTitle, loadAllSkillConfigs, retrieveSkill } from '../lib/skills.js';
+  createRemoteLookup,
+  idsTrackedElsewhere,
+  type NameLookup,
+  type RemoteResourceKind,
+} from '../lib/remote-lookup.js';
+import { loadAllSkillConfigs, retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
+import { AMBIGUOUS_REMOTE_HINT, formatAmbiguousSkip } from './ambiguous-remote.js';
 
 export interface SyncOptions {
   /**
@@ -95,6 +94,25 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   let deploySkipped = 0;
   let deployDiscovered = 0;
   let stateChanged = false;
+  let ambiguous = 0;
+  const lookup = createRemoteLookup();
+
+  // Discovery never picks one of several same-named remote resources: the
+  // resource is reported, counted as skipped, and left untracked.
+  const unique = <T extends { id: string }>(
+    kind: RemoteResourceKind,
+    localName: string,
+    name: string,
+    found: NameLookup<T>,
+  ): { remote: T | null; ambiguous: boolean } => {
+    if (found.kind === 'one') return { remote: found.remote, ambiguous: false };
+    if (found.kind === 'ambiguous') {
+      process.stdout.write(formatAmbiguousSkip(kind, localName, name, found.candidates));
+      ambiguous++;
+      return { remote: null, ambiguous: true };
+    }
+    return { remote: null, ambiguous: false };
+  };
 
   // ----- agents -----
   for (const name of Object.keys(state.agents)) {
@@ -161,8 +179,18 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   // Skills that have a local directory but no state entry: try to find a matching remote and register it.
   for (const [localName, skill] of skills) {
     if (state.skills[localName]) continue;
-    const remote = await findSkillByDisplayTitle(skill.displayTitle);
-    if (remote) {
+    const found = unique(
+      'skill',
+      localName,
+      skill.displayTitle,
+      await lookup.skillByDisplayTitle(skill.displayTitle, {
+        excludeIds: idsTrackedElsewhere(state.skills, localName),
+      }),
+    );
+    const remote = found.remote;
+    if (found.ambiguous) {
+      skillSkipped++;
+    } else if (remote) {
       state.skills[localName] = {
         id: remote.id,
         version: remote.latest_version,
@@ -205,9 +233,18 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   // For local manifests without state entries, discover via name match.
   for (const [localName, { config }] of memoryStores) {
     if (state.memory_stores[localName]) continue;
-    const remotes = await listMemoryStores();
-    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
-    if (remote) {
+    const found = unique(
+      'memory_store',
+      localName,
+      config.name,
+      await lookup.memoryStoreByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.memory_stores, localName),
+      }),
+    );
+    const remote = found.remote;
+    if (found.ambiguous) {
+      memSkipped++;
+    } else if (remote) {
       state.memory_stores[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
         `  [+] discovered memory_store: ${JSON.stringify(localName)} (id=${remote.id})\n`,
@@ -244,9 +281,18 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   }
   for (const [localName, { config }] of environments) {
     if (state.environments[localName]) continue;
-    const remotes = await listEnvironments();
-    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
-    if (remote) {
+    const found = unique(
+      'environment',
+      localName,
+      config.name,
+      await lookup.environmentByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.environments, localName),
+      }),
+    );
+    const remote = found.remote;
+    if (found.ambiguous) {
+      envSkipped++;
+    } else if (remote) {
       state.environments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
         `  [+] discovered environment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
@@ -286,11 +332,18 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   }
   for (const [localName, vault] of vaults) {
     if (state.vaults[localName]) continue;
-    const remotes = await listVaults();
-    const remote = remotes.find(
-      (r) => r.display_name === vault.config.display_name && !r.archived_at,
+    const found = unique(
+      'vault',
+      localName,
+      vault.config.display_name,
+      await lookup.vaultByDisplayName(vault.config.display_name, {
+        excludeIds: idsTrackedElsewhere(state.vaults, localName),
+      }),
     );
-    if (remote) {
+    const remote = found.remote;
+    if (found.ambiguous) {
+      vaultSkipped++;
+    } else if (remote) {
       state.vaults[localName] = {
         id: remote.id,
         display_name: remote.display_name,
@@ -334,8 +387,18 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
   }
   for (const [localName, { config }] of deployments) {
     if (state.deployments[localName]) continue;
-    const remote = await findDeploymentByName(config.name);
-    if (remote) {
+    const found = unique(
+      'deployment',
+      localName,
+      config.name,
+      await lookup.deploymentByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.deployments, localName),
+      }),
+    );
+    const remote = found.remote;
+    if (found.ambiguous) {
+      deploySkipped++;
+    } else if (remote) {
       state.deployments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
         `  [+] discovered deployment: ${JSON.stringify(localName)} (id=${remote.id})\n`,
@@ -353,6 +416,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
     await saveState(state);
     process.stdout.write(`\nState updated: ${path.relative(CMAFORM_DIR, STATE_PATH)}\n`);
   }
+  if (ambiguous > 0) process.stdout.write(`\n${AMBIGUOUS_REMOTE_HINT}\n`);
   process.stdout.write(
     `\nSync complete:\n` +
       `  agents:        ${agentWritten} written, ${agentSkipped} skipped\n` +

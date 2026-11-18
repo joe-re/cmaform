@@ -27,3 +27,16 @@ export function reportAmbiguousRemoteName(err: unknown): void {
   }
   process.stderr.write(formatErrorDetail(AMBIGUOUS_REMOTE_HINT) + '\n');
 }
+
+/**
+ * One-line warning for discovery commands (`init` / `sync`) that skip a
+ * resource because several active remote resources carry its name.
+ */
+export function formatAmbiguousSkip(
+  kind: string,
+  localName: string,
+  name: string,
+  candidates: { id: string }[],
+): string {
+  return `  [!] skipped ${kind} ${JSON.stringify(localName)}: ${candidates.length} active remote resources are named ${JSON.stringify(name)} (${candidates.map((c) => `id=${c.id}`).join(', ')})\n`;
+}

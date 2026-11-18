@@ -212,11 +212,6 @@ export function toApplyParams(config: AgentConfig) {
   };
 }
 
-export async function findAgentByName(name: string): Promise<RemoteAgent | null> {
-  const agents = await listAgents();
-  return agents.find((a) => a.name === name && !a.archived_at) ?? null;
-}
-
 export async function resolveRemote(
   name: string,
   state: State,

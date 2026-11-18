@@ -188,11 +188,6 @@ export async function retrieveDeployment(id: string): Promise<RemoteDeployment |
   }
 }
 
-export async function findDeploymentByName(name: string): Promise<RemoteDeployment | null> {
-  const deployments = await listDeployments();
-  return deployments.find((d) => d.name === name && !d.archived_at) ?? null;
-}
-
 /** Convert a resolved agent ref to the API's `agent` param form. */
 function agentApplyParam(agent: ResolvedDeployment['agent']): unknown {
   // An object pins a concrete version; a bare id string re-pins to the latest.

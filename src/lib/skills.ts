@@ -148,11 +148,6 @@ export async function retrieveSkill(id: string): Promise<RemoteSkill | null> {
   }
 }
 
-export async function findSkillByDisplayTitle(title: string): Promise<RemoteSkill | null> {
-  const skills = await listSkills('custom');
-  return skills.find((s) => s.display_title === title) ?? null;
-}
-
 async function buildSkillUploadables(skill: LocalSkill) {
   // Form the multipart filename as "<skillName>/<rel>".
   // The API requires the SKILL.md frontmatter `name` to be used as skillName.
