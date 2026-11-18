@@ -101,7 +101,7 @@ cmaform apply deployment:nightly         # nightly という名前の deployment
 
 素の名前は全種別に一致します。agent・memory store・deployment が同名のときは `<kind>:<name>` 形式 (上の別名のどれでも可。例: `deploy:nightly`) で 1 つだけ選べます。`:` より前が種別の別名でなければ、文字列全体を素の名前として扱います。
 
-個別名を指定して local YAML / state / remote のどこにも見つからない場合は exit code `2` でエラー終了します。種別を指定して該当 0 件の場合はエラーになりません (`0 to add, 0 to change, ...` と出るだけ)。
+個別名を指定して local YAML / state / remote のどこにも見つからない場合は exit code `2` でエラー終了します (`<接頭辞>:<名前>` で接頭辞が未知の種別のときは、種別が未知であることと `<kind>:<name>` の候補を表示します)。同名の active な remote リソースが複数あるときは、ターゲットがそのリソース (またはそれを参照するリソース) を選んだ場合だけエラーになり、それ以外は plan の下に警告を出すだけです。種別を指定して該当 0 件の場合はエラーになりません (`0 to add, 0 to change, ...` と出るだけ)。
 
 ### 既存リソースの取り込み
 
@@ -405,7 +405,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ```
 
 - `pull` / `apply` / `sync` / `init` で更新されます
-- state にエントリが無いリソースは、重複作成せず remote を名前で探して取り込みます。同名の active なリソースが複数あるときはエラーにして候補を列挙します
+- state にエントリが無いリソースは、重複作成せず remote を名前で探して取り込みます。同名の active なリソースが複数あるときはエラーにして候補を列挙します (ターゲット指定時は、そのリソースかそれを参照するリソースを選んだ場合だけ。それ以外は警告にとどまります)
 - **`.gitignore` 推奨** (Terraform state ファイルと同様に、ローカルの真実として扱う)
 - 共有された state があれば、`cmaform sync` で agent 用 YAML を一括生成できます (skill 本体ファイルは前述の通り復元できません)
 
