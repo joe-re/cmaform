@@ -597,14 +597,16 @@ function agentNamesSelectedByTargets(
 ): Set<string> {
   if (targets.length === 0) return new Set(configs.keys());
 
+  const { kinds, names, qualified } = parseTargets(targets);
   const selected = new Set<string>();
-  for (const target of targets) {
-    const kind = RESOURCE_KIND_ALIASES[target];
-    if (kind === 'agent') {
-      for (const name of configs.keys()) selected.add(name);
-    } else if (!kind && configs.has(target)) {
-      selected.add(target);
-    }
+  if (kinds.has('agent')) {
+    for (const name of configs.keys()) selected.add(name);
+  }
+  for (const name of names) {
+    if (configs.has(name)) selected.add(name);
+  }
+  for (const q of qualified) {
+    if (q.kind === 'agent' && configs.has(q.name)) selected.add(q.name);
   }
   return selected;
 }
@@ -640,14 +642,14 @@ function markLatestAgentVersions(
 
 type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault' | 'deployment';
 
-function actionResourceName(a: Action): string {
+export function actionResourceName(a: Action): string {
   if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
     return a.name;
   }
   return (a as { localName: string }).localName;
 }
 
-function actionResourceKind(a: Action): ResourceKind {
+export function actionResourceKind(a: Action): ResourceKind {
   if (a.type.startsWith('skill_')) return 'skill';
   if (a.type.startsWith('memstore_')) return 'memory_store';
   if (a.type.startsWith('env_')) return 'environment';
@@ -677,33 +679,76 @@ const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
   deploys: 'deployment',
 };
 
+/** `<kind>:<name>` identifying one action, e.g. `deployment:nightly`. */
+export function actionKey(a: Action): string {
+  return `${actionResourceKind(a)}:${actionResourceName(a)}`;
+}
+
+interface ParsedTargets {
+  /** bare kind aliases (`agents`, `deploy`, ...): every resource of the kind */
+  kinds: Set<ResourceKind>;
+  /** bare names: resources of any kind with that name */
+  names: Set<string>;
+  /** `<kind>:<name>` targets, with the original string kept for reporting */
+  qualified: { kind: ResourceKind; name: string; raw: string }[];
+}
+
+/**
+ * Split targets into kinds, bare names and `<kind>:<name>` pairs. A string
+ * whose part before the first `:` is not a kind alias is a bare name, so
+ * names that contain `:` keep working.
+ */
+function parseTargets(targets: string[]): ParsedTargets {
+  const kinds = new Set<ResourceKind>();
+  const names = new Set<string>();
+  const qualified: ParsedTargets['qualified'] = [];
+  for (const t of targets) {
+    const bareKind = RESOURCE_KIND_ALIASES[t];
+    if (bareKind) {
+      kinds.add(bareKind);
+      continue;
+    }
+    const colon = t.indexOf(':');
+    const qualifiedKind = colon > 0 ? RESOURCE_KIND_ALIASES[t.slice(0, colon)] : undefined;
+    if (qualifiedKind) {
+      qualified.push({ kind: qualifiedKind, name: t.slice(colon + 1), raw: t });
+    } else {
+      names.add(t);
+    }
+  }
+  return { kinds, names, qualified };
+}
+
 export function filterActionsByTargets(
   actions: Action[],
   targets: string[],
 ): { filtered: Action[]; unmatched: string[] } {
-  const kindTargets = new Set<ResourceKind>();
-  const nameTargets = new Set<string>();
-  for (const t of targets) {
-    const kind = RESOURCE_KIND_ALIASES[t];
-    if (kind) {
-      kindTargets.add(kind);
-    } else {
-      nameTargets.add(t);
-    }
-  }
+  const { kinds, names, qualified } = parseTargets(targets);
 
   const matchedNames = new Set<string>();
+  const matchedQualified = new Set<string>();
   const filtered: Action[] = [];
   for (const a of actions) {
     const kind = actionResourceKind(a);
     const name = actionResourceName(a);
-    if (kindTargets.has(kind) || nameTargets.has(name)) {
-      if (nameTargets.has(name)) matchedNames.add(name);
-      filtered.push(a);
+    let selected = kinds.has(kind);
+    if (names.has(name)) {
+      matchedNames.add(name);
+      selected = true;
     }
+    for (const q of qualified) {
+      if (q.kind === kind && q.name === name) {
+        matchedQualified.add(q.raw);
+        selected = true;
+      }
+    }
+    if (selected) filtered.push(a);
   }
 
-  const unmatched = [...nameTargets].filter((n) => !matchedNames.has(n));
+  const unmatched = [
+    ...[...names].filter((n) => !matchedNames.has(n)),
+    ...qualified.filter((q) => !matchedQualified.has(q.raw)).map((q) => q.raw),
+  ];
   return { filtered, unmatched };
 }
 

@@ -31,7 +31,7 @@ import { retrieveEnvironment } from './environments.js';
 import { retrieveMemoryStore } from './memory-stores.js';
 import { AmbiguousRemoteNameError, type NameLookup, type RemoteLookup } from './remote-lookup.js';
 import { retrieveVault } from './vaults.js';
-import { computePlan, filterActionsByTargets, hasChanges, type Action } from './plan.js';
+import { actionKey, computePlan, filterActionsByTargets, hasChanges, type Action } from './plan.js';
 import {
   UNKNOWN_SKILL_HASH,
   type AgentConfig,
@@ -807,5 +807,74 @@ describe('computePlan — skills with an unknown state hash', () => {
   it('stays unchanged when the recorded hash matches the local one', async () => {
     const actions = await planSkill(skill.hash);
     expect(actions.map((a) => a.type)).toEqual(['skill_noop']);
+  });
+});
+
+describe('filterActionsByTargets — kind-qualified targets', () => {
+  const agent: Action = { type: 'noop', name: 'shared', id: 'agent_1', version: 1 };
+  const store: Action = { type: 'memstore_noop', localName: 'shared', id: 'ms_1', name: 'Shared' };
+  const deployment: Action = {
+    type: 'deploy_noop',
+    localName: 'shared',
+    id: 'dep_1',
+    name: 'Shared',
+  };
+  const other: Action = { type: 'noop', name: 'other', id: 'agent_2', version: 1 };
+  const actions = [agent, store, deployment, other];
+
+  it('keeps only the resource of the qualified kind', () => {
+    expect(filterActionsByTargets(actions, ['deployment:shared'])).toEqual({
+      filtered: [deployment],
+      unmatched: [],
+    });
+    expect(filterActionsByTargets(actions, ['agent:shared']).filtered).toEqual([agent]);
+  });
+
+  it('accepts kind aliases as the qualifier', () => {
+    expect(filterActionsByTargets(actions, ['deploy:shared']).filtered).toEqual([deployment]);
+    expect(filterActionsByTargets(actions, ['memstore:shared']).filtered).toEqual([store]);
+    expect(filterActionsByTargets(actions, ['memory_store:shared']).filtered).toEqual([store]);
+    expect(filterActionsByTargets(actions, ['agents:shared']).filtered).toEqual([agent]);
+  });
+
+  it('still matches a bare name against every kind', () => {
+    expect(filterActionsByTargets(actions, ['shared']).filtered).toEqual([
+      agent,
+      store,
+      deployment,
+    ]);
+  });
+
+  it('treats a string with a non-alias prefix as a bare name', () => {
+    const colonAgent: Action = { type: 'noop', name: 'team:ops', id: 'agent_3', version: 1 };
+    expect(filterActionsByTargets([colonAgent, other], ['team:ops'])).toEqual({
+      filtered: [colonAgent],
+      unmatched: [],
+    });
+  });
+
+  it('reports qualified targets that match nothing, as typed', () => {
+    expect(
+      filterActionsByTargets(actions, ['vault:shared', 'agent:', 'deployment:shared']),
+    ).toEqual({ filtered: [deployment], unmatched: ['vault:shared', 'agent:'] });
+  });
+
+  it('combines qualified targets with kinds and bare names', () => {
+    const result = filterActionsByTargets(actions, ['deployment:shared', 'memstores', 'other']);
+    expect(result.filtered).toEqual([store, deployment, other]);
+    expect(result.unmatched).toEqual([]);
+  });
+});
+
+describe('actionKey', () => {
+  it('formats <kind>:<name> for every resource kind', () => {
+    expect(actionKey(noop)).toBe('agent:agent-a');
+    expect(actionKey(skillNoop)).toBe('skill:skill-a');
+    expect(actionKey(memstoreCreate)).toBe('memory_store:memory-a');
+    expect(actionKey(envArchive)).toBe('environment:env-a');
+    expect(actionKey(vaultNoop)).toBe('vault:vault-a');
+    expect(actionKey({ type: 'deploy_noop', localName: 'd', id: 'x', name: 'D' })).toBe(
+      'deployment:d',
+    );
   });
 });

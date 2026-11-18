@@ -1,4 +1,4 @@
-import type { Action } from './plan.js';
+import { actionKey, type Action } from './plan.js';
 
 /**
  * Reorder actions so that every action's forward dependencies (other actions
@@ -13,33 +13,19 @@ import type { Action } from './plan.js';
  * Stable: actions without dependency relationships keep their original order.
  */
 /**
- * The canonical id used by `topoSortActions` to address one action. Returned
- * in the form `agent:<name>` / `skill:<localName>` / `memstore:<localName>`.
- * Exported so callers (especially tests) can refer to an action by the same
- * identifier the sorter uses internally.
+ * The canonical id used by `topoSortActions` to address one action, in the
+ * form `<kind>:<name>` (see `actionKey`). Exported so callers (especially
+ * tests) can refer to an action by the same identifier the sorter uses.
  */
 export function actionId(action: Action): string {
-  if (
-    action.type === 'create' ||
-    action.type === 'update' ||
-    action.type === 'noop' ||
-    action.type === 'delete'
-  ) {
-    return `agent:${action.name}`;
-  }
-  const localName = (action as { localName: string }).localName;
-  if (action.type.startsWith('skill_')) return `skill:${localName}`;
-  if (action.type.startsWith('env_')) return `environment:${localName}`;
-  if (action.type.startsWith('vault_')) return `vault:${localName}`;
-  if (action.type.startsWith('deploy_')) return `deployment:${localName}`;
-  return `memstore:${localName}`;
+  return actionKey(action);
 }
 
 export function topoSortActions(actions: Action[]): Action[] {
   type Node = {
     index: number; // original index, used as tiebreaker for stability
     action: Action;
-    /** ids in the form `agent:<name>` or `skill:<localName>` */
+    /** ids in the form `<kind>:<name>`, see `actionKey` */
     deps: string[];
     id: string;
   };

@@ -8,7 +8,13 @@ import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import { computePlan, type Action, filterActionsByTargets, hasChanges } from '../lib/plan.js';
+import {
+  actionKey,
+  computePlan,
+  type Action,
+  filterActionsByTargets,
+  hasChanges,
+} from '../lib/plan.js';
 import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
 import {
   buildResolutionContext,
@@ -126,20 +132,7 @@ export async function cmdApply(
     // Target filtering can drop forward dependencies. Surface them as a
     // hard error so the user adds them to the target list explicitly
     // (rather than failing late inside executeActions).
-    const inTarget = new Set<string>();
-    for (const a of actions) {
-      if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
-        inTarget.add(`agent:${a.name}`);
-      } else if (a.type.startsWith('skill_')) {
-        inTarget.add(`skill:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('env_')) {
-        inTarget.add(`environment:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('vault_')) {
-        inTarget.add(`vault:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('deploy_')) {
-        inTarget.add(`deployment:${(a as { localName: string }).localName}`);
-      }
-    }
+    const inTarget = new Set(actions.map(actionKey));
     const droppedDeps: string[] = [];
     for (const a of actions) {
       if (a.type === 'create' || a.type === 'update') {
