@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- `cmaform init` now creates `cmaform.state.json` in a fresh project even when
+  there is nothing to reconcile, so `plan` / `apply` no longer demand an `init`
+  that never produces the file (#30).
+
 ## [0.4.0] - 2026-06-16
 
 ### Added

@@ -21,6 +21,15 @@ function normalizeState(parsed: Partial<State> | null): State {
   };
 }
 
+export async function stateFileExists(): Promise<boolean> {
+  try {
+    await fs.access(STATE_PATH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadState(): Promise<State> {
   try {
     const content = await fs.readFile(STATE_PATH, 'utf-8');
