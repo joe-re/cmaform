@@ -43,6 +43,7 @@ export function topoSortActions(actions: Action[]): Action[] {
         ...action.forwardAgentDeps.map((n) => `agent:${n}`),
         ...action.forwardEnvDeps.map((n) => `environment:${n}`),
         ...action.forwardVaultDeps.map((n) => `vault:${n}`),
+        ...action.forwardMemoryStoreDeps.map((n) => `memory_store:${n}`),
       ];
     }
     return { index, action, deps, id };

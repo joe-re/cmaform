@@ -6,6 +6,7 @@ import type {
   DeploymentConfig,
   EnvironmentConfig,
   LocalSkill,
+  MemoryStoreConfig,
   RemoteAgent,
   ResolvedDeployment,
   State,
@@ -40,6 +41,11 @@ export interface ResolutionContext {
    * name (the manifest's `display_name`).
    */
   localVaults: Map<string, string>;
+  /**
+   * Local memory store directory names (= state keys) mapped to the store's
+   * remote name (the manifest's `name`).
+   */
+  localMemoryStores: Map<string, string>;
   /** Per-run cached remote name lookup, shared with `computePlan`. */
   lookup: RemoteLookup;
 }
@@ -50,6 +56,7 @@ export function buildResolutionContext(args: {
   skills: Map<string, LocalSkill>;
   environments?: Map<string, { config: EnvironmentConfig }>;
   vaults?: Map<string, LocalVault>;
+  memoryStores?: Map<string, { config: MemoryStoreConfig }>;
   lookup: RemoteLookup;
 }): ResolutionContext {
   return {
@@ -58,6 +65,7 @@ export function buildResolutionContext(args: {
     localSkills: args.skills,
     localEnvironments: new Map([...(args.environments ?? [])].map(([k, v]) => [k, v.config.name])),
     localVaults: new Map([...(args.vaults ?? [])].map(([k, v]) => [k, v.config.display_name])),
+    localMemoryStores: new Map([...(args.memoryStores ?? [])].map(([k, v]) => [k, v.config.name])),
     lookup: args.lookup,
   };
 }
@@ -74,6 +82,7 @@ const PENDING_AGENT_ID_PREFIX = '__cmaform_pending_agent__:';
 const PENDING_SKILL_ID_PREFIX = '__cmaform_pending_skill__:';
 const PENDING_ENV_ID_PREFIX = '__cmaform_pending_environment__:';
 const PENDING_VAULT_ID_PREFIX = '__cmaform_pending_vault__:';
+const PENDING_MEMORY_STORE_ID_PREFIX = '__cmaform_pending_memory_store__:';
 
 export function pendingAgentSentinel(name: string): string {
   return `${PENDING_AGENT_ID_PREFIX}${name}`;
@@ -89,6 +98,10 @@ export function pendingEnvironmentSentinel(name: string): string {
 
 export function pendingVaultSentinel(name: string): string {
   return `${PENDING_VAULT_ID_PREFIX}${name}`;
+}
+
+export function pendingMemoryStoreSentinel(name: string): string {
+  return `${PENDING_MEMORY_STORE_ID_PREFIX}${name}`;
 }
 
 export function extractPendingAgent(v: unknown): string | null {
@@ -113,6 +126,12 @@ export function extractPendingVault(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   if (!v.startsWith(PENDING_VAULT_ID_PREFIX)) return null;
   return v.slice(PENDING_VAULT_ID_PREFIX.length);
+}
+
+export function extractPendingMemoryStore(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  if (!v.startsWith(PENDING_MEMORY_STORE_ID_PREFIX)) return null;
+  return v.slice(PENDING_MEMORY_STORE_ID_PREFIX.length);
 }
 
 // ---------------- single-name resolution ----------------
@@ -305,6 +324,30 @@ export async function resolveVaultName(
   return { kind: 'missing' };
 }
 
+export async function resolveMemoryStoreName(
+  name: string,
+  ctx: ResolutionContext,
+): Promise<RefResolution> {
+  const tracked = ctx.state.memory_stores[name];
+  if (tracked) return { kind: 'resolved', id: tracked.id };
+
+  const remoteName = ctx.localMemoryStores.get(name) ?? name;
+  const remote = requireUnique(
+    'memory_store',
+    remoteName,
+    await ctx.lookup.memoryStoreByName(remoteName, {
+      excludeIds: idsTrackedElsewhere(ctx.state.memory_stores, name),
+    }),
+  );
+  if (remote) return { kind: 'resolved', id: remote.id };
+
+  if (ctx.localMemoryStores.has(name)) {
+    return { kind: 'forward', name, sentinel: pendingMemoryStoreSentinel(name) };
+  }
+
+  return { kind: 'missing' };
+}
+
 // ---------------- deployment config transformation ----------------
 
 export interface ResolvedDeploymentConfig {
@@ -315,6 +358,8 @@ export interface ResolvedDeploymentConfig {
   forwardEnvDeps: string[];
   /** Vault names that must be created before this deployment. */
   forwardVaultDeps: string[];
+  /** Memory store names that must be created before this deployment. */
+  forwardMemoryStoreDeps: string[];
   /** References that could not be resolved anywhere — fatal. */
   missingRefs: string[];
   /** Pinned-id-vs-name assertion failures — fatal. */
@@ -340,6 +385,7 @@ export async function resolveDeploymentConfig(
   const forwardAgentDeps: string[] = [];
   const forwardEnvDeps: string[] = [];
   const forwardVaultDeps: string[] = [];
+  const forwardMemoryStoreDeps: string[] = [];
   const missingRefs: string[] = [];
   const idMismatches: string[] = [];
 
@@ -411,6 +457,46 @@ export async function resolveDeploymentConfig(
     }
   }
 
+  // ----- resources[] (memory_store name refs) -----
+  let resources = config.resources;
+  if (Array.isArray(resources)) {
+    const newResources: unknown[] = [];
+    for (const entry of resources) {
+      const e = entry as Record<string, unknown> | null;
+      if (!isPlainObject(e) || e.type !== 'memory_store' || typeof e.memory_store !== 'string') {
+        newResources.push(entry);
+        continue;
+      }
+      const { memory_store, memory_store_id: pinned, ...others } = e;
+      const name = memory_store as string;
+      const res = await resolveMemoryStoreName(name, ctx);
+      // The API only knows `memory_store_id`; never let `memory_store` through.
+      if (typeof pinned === 'string') {
+        // Pin form: the written id is what gets sent. The name is only an
+        // assertion, checked when it resolves to an existing store.
+        if (res.kind === 'resolved' && res.id !== pinned) {
+          idMismatches.push(
+            `memory store "${name}" pinned memory_store_id=${pinned}, resolved memory_store_id=${res.id}`,
+          );
+        }
+        newResources.push({ ...others, memory_store_id: pinned });
+        continue;
+      }
+      let id: string;
+      if (res.kind === 'resolved') {
+        id = res.id;
+      } else if (res.kind === 'forward') {
+        forwardMemoryStoreDeps.push(name);
+        id = res.sentinel;
+      } else {
+        missingRefs.push(`memory store "${name}"`);
+        id = name;
+      }
+      newResources.push({ ...others, memory_store_id: id });
+    }
+    resources = newResources;
+  }
+
   return {
     config: {
       name: config.name,
@@ -419,13 +505,14 @@ export async function resolveDeploymentConfig(
       environment_id: environmentId,
       initial_events: config.initial_events,
       schedule: config.schedule,
-      resources: config.resources,
+      resources,
       vault_ids: vaultIds,
       metadata: config.metadata,
     },
     forwardAgentDeps,
     forwardEnvDeps,
     forwardVaultDeps,
+    forwardMemoryStoreDeps,
     missingRefs,
     idMismatches,
   };
@@ -438,10 +525,16 @@ export async function resolveDeploymentConfig(
  */
 export function substitutePendingDeploymentIds(
   config: ResolvedDeployment,
-  createdAgents: Map<string, string>,
-  createdEnvironments: Map<string, string>,
-  createdVaults: Map<string, string>,
+  created: {
+    agents: Map<string, string>;
+    environments: Map<string, string>;
+    vaults: Map<string, string>;
+    memoryStores: Map<string, string>;
+  },
 ): ResolvedDeployment {
+  const createdAgents = created.agents;
+  const createdEnvironments = created.environments;
+  const createdVaults = created.vaults;
   const out: ResolvedDeployment = { ...config };
 
   const pendingAgent = extractPendingAgent(out.agent.id);
@@ -466,6 +559,20 @@ export function substitutePendingDeploymentIds(
       const id = createdVaults.get(pendingVault);
       if (!id) throw new Error(`internal: vault "${pendingVault}" referenced but not yet created`);
       return id;
+    });
+  }
+
+  if (Array.isArray(out.resources)) {
+    out.resources = out.resources.map((entry) => {
+      const e = entry as Record<string, unknown> | null;
+      if (!isPlainObject(e) || e.type !== 'memory_store') return entry;
+      const pending = extractPendingMemoryStore(e.memory_store_id);
+      if (!pending) return entry;
+      const id = created.memoryStores.get(pending);
+      if (!id) {
+        throw new Error(`internal: memory store "${pending}" referenced but not yet created`);
+      }
+      return { ...e, memory_store_id: id };
     });
   }
 
@@ -763,6 +870,8 @@ export function prettifySentinelsForDisplay(value: unknown): unknown {
     if (e) return `<pending: environment "${e}">`;
     const v = extractPendingVault(value);
     if (v) return `<pending: vault "${v}">`;
+    const m = extractPendingMemoryStore(value);
+    if (m) return `<pending: memory_store "${m}">`;
   }
   return value;
 }
@@ -818,4 +927,8 @@ export function rewriteSkillRefsToNameForm(
     }
     return entry;
   });
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

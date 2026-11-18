@@ -727,6 +727,33 @@ describe('computePlan — adopting same-named remote resources', () => {
     expect(actions[0].type).toMatch(/^env_(noop|update)$/);
   });
 
+  it('passes memory store forward deps through to deployment actions', async () => {
+    const resolved: ResolvedDeployment = {
+      name: 'nightly',
+      agent: { id: 'agent_1', version: 1 },
+      environment_id: 'env_1',
+      initial_events: [],
+    };
+    const resolution = {
+      config: resolved,
+      forwardAgentDeps: [],
+      forwardEnvDeps: [],
+      forwardVaultDeps: [],
+      forwardMemoryStoreDeps: ['notes'],
+      missingRefs: [],
+      idMismatches: [],
+    };
+    const actions = await plan(emptyState(), makeLookup(), {
+      deployments: new Map([['nightly', { config: {} as never, dirPath: 'deployments/nightly' }]]),
+      deploymentResolutions: new Map([['nightly', resolution as never]]),
+    });
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({
+      type: 'deploy_create',
+      forwardMemoryStoreDeps: ['notes'],
+    });
+  });
+
   it('adopts an untracked deployment', async () => {
     const resolved: ResolvedDeployment = {
       name: 'nightly',
@@ -746,6 +773,7 @@ describe('computePlan — adopting same-named remote resources', () => {
       forwardAgentDeps: [],
       forwardEnvDeps: [],
       forwardVaultDeps: [],
+      forwardMemoryStoreDeps: [],
       missingRefs: [],
       idMismatches: [],
     };
