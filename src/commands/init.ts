@@ -14,7 +14,7 @@ import {
 } from '../lib/environments.js';
 import { listMemoryStores, retrieveMemoryStore } from '../lib/memory-stores.js';
 import { findSkillByDisplayTitle, retrieveSkill } from '../lib/skills.js';
-import { loadState, saveState } from '../lib/state.js';
+import { loadState, saveState, stateFileExists } from '../lib/state.js';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
@@ -29,10 +29,13 @@ import { listVaults, loadAllVaultConfigs, retrieveVault } from '../lib/vaults.js
  * - If a local YAML exists without a state entry but a remote with the matching name
  *   exists, discover it and add to state.
  *
+ * If the state file does not exist yet, an empty one is created even when nothing changed.
+ *
  * Equivalent in spirit to `terraform init` — set up the local state so subsequent
  * `plan` / `apply` operate against an accurate view of the world.
  */
 export async function cmdInit(): Promise<number> {
+  const stateExisted = await stateFileExists();
   const state = await loadState();
   const configs = await loadAllAgentConfigs();
   const skills = await loadAllSkillConfigs();
@@ -260,11 +263,15 @@ export async function cmdInit(): Promise<number> {
     }
   }
 
-  if (changed === 0) {
+  if (changed === 0 && stateExisted) {
     process.stdout.write('No state changes.\n');
     return 0;
   }
   await saveState(state);
+  if (changed === 0) {
+    process.stdout.write(`Initialized empty state: ${path.relative(process.cwd(), STATE_PATH)}\n`);
+    return 0;
+  }
   process.stdout.write(
     `\nState refreshed: ${changed} change(s). Saved to ${path.relative(process.cwd(), STATE_PATH)}\n`,
   );
