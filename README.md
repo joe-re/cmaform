@@ -101,7 +101,7 @@ A `<target>` is either a **kind alias** (matches every resource of that type) or
 
 A bare name matches every kind. If an agent, a memory store and a deployment share a name, qualify it as `<kind>:<name>` (any kind alias above works, e.g. `deploy:nightly`) to select just one. A prefix that is not a kind alias leaves the whole string as a plain name.
 
-If you pass an individual name that doesn't exist anywhere (local YAML, state, or remote), cmaform exits with code `2`. An unmatched kind is fine — it just shows `0 to add, 0 to change, ...`.
+If you pass an individual name that doesn't exist anywhere (local YAML, state, or remote), cmaform exits with code `2`; for `<prefix>:<name>` with an unknown prefix it says the kind is unknown and suggests `<kind>:<name>`. If several active remote resources share a name, only a target that selects that resource (or a resource that references it) fails; elsewhere it is a warning under the plan. An unmatched kind is fine — it just shows `0 to add, 0 to change, ...`.
 
 ### Pulling existing resources
 
@@ -406,7 +406,7 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 ```
 
 - Maintained by `pull` / `apply` / `sync` / `init`.
-- A resource with no state entry is looked up on remote by name and adopted instead of being created again. If several active remote resources share that name, cmaform stops with an error listing them.
+- A resource with no state entry is looked up on remote by name and adopted instead of being created again. If several active remote resources share that name, cmaform stops with an error listing them (with targets, only when they select that resource or one that references it; otherwise it is a warning).
 - Recommended to `.gitignore` (treat as the local source of truth, like a Terraform state file).
 - If someone shares a state file with you, run `cmaform sync` to regenerate the local YAML for every agent (skill bodies cannot be restored — see above).
 

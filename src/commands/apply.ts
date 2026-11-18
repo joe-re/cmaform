@@ -1,34 +1,14 @@
 import path from 'node:path';
 
-import { loadAllAgentConfigs } from '../lib/agents.js';
 import { colorizeMany, formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
 import { confirm, executeActions } from '../lib/apply.js';
 import { STATE_PATH } from '../lib/config.js';
-import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
-import { loadAllEnvironmentConfigs } from '../lib/environments.js';
-import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import {
-  actionKey,
-  computePlan,
-  type Action,
-  filterActionsByTargets,
-  hasChanges,
-} from '../lib/plan.js';
-import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
-import {
-  buildResolutionContext,
-  resolveAgentConfig,
-  resolveDeploymentConfig,
-  type ResolvedConfig,
-  type ResolvedDeploymentConfig,
-} from '../lib/resolve.js';
-import { loadAllSkillConfigs } from '../lib/skills.js';
+import { actionKey, hasChanges } from '../lib/plan.js';
 import { saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
-import { loadAllVaultConfigs } from '../lib/vaults.js';
-import { createRemoteLookup } from '../lib/remote-lookup.js';
-import { reportAmbiguousRemoteName } from './ambiguous-remote.js';
+import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
+import { runPlanPipeline } from './plan-pipeline.js';
 import { loadStateForPlanApply } from './state-precondition.js';
 
 export async function cmdApply(
@@ -38,98 +18,11 @@ export async function cmdApply(
 ): Promise<number> {
   const state = await loadStateForPlanApply('apply');
   if (!state) return 2;
-  const configs = await loadAllAgentConfigs();
-  const skills = await loadAllSkillConfigs();
-  const memoryStores = await loadAllMemoryStoreConfigs();
-  const environments = await loadAllEnvironmentConfigs();
-  const vaults = await loadAllVaultConfigs();
-  const deployments = await loadAllDeploymentConfigs();
-
-  // One lookup is shared by reference resolution and the plan so each remote
-  // kind is listed at most once.
-  const lookup = createRemoteLookup();
-  let allActions: Action[];
-  const resolutions = new Map<string, ResolvedConfig>();
-  const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
-  try {
-    const ctx = buildResolutionContext({
-      state,
-      agents: configs,
-      skills,
-      environments,
-      vaults,
-      memoryStores,
-      lookup,
-    });
-    const missing: string[] = [];
-    const idMismatches: string[] = [];
-    for (const [name, { config }] of configs) {
-      const r = await resolveAgentConfig(config, ctx);
-      resolutions.set(name, r);
-      for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
-      for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
-      for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
-    }
-    for (const [localName, { config }] of deployments) {
-      const r = await resolveDeploymentConfig(config, ctx);
-      deploymentResolutions.set(localName, r);
-      for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
-      for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
-    }
-    if (missing.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          'the following name-based references could not be resolved (not in state, remote, or local config):',
-        ) + '\n',
-      );
-      for (const m of missing) {
-        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
-      }
-      return 2;
-    }
-    if (idMismatches.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):',
-        ) + '\n',
-      );
-      for (const m of idMismatches) {
-        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
-      }
-      return 2;
-    }
-
-    allActions = await computePlan(
-      state,
-      configs,
-      skills,
-      memoryStores,
-      environments,
-      vaults,
-      deployments,
-      resolutions,
-      deploymentResolutions,
-      { targets, lookup },
-    );
-  } catch (err) {
-    reportAmbiguousRemoteName(err);
-    return 2;
-  }
-
-  let actions = allActions;
+  const planned = await runPlanPipeline(state, targets);
+  if (!planned.ok) return planned.exitCode;
+  const { resolutions } = planned;
+  let actions = planned.actions;
   if (targets.length > 0) {
-    const { filtered, unmatched } = filterActionsByTargets(allActions, targets);
-    if (unmatched.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map((t) => JSON.stringify(t)).join(', ')}`,
-        ) + '\n',
-      );
-      return 2;
-    }
-    actions = filtered;
-    process.stdout.write(`(filter: ${targets.map((t) => JSON.stringify(t)).join(', ')})\n`);
-
     // Target filtering can drop forward dependencies. Surface them as a
     // hard error so the user adds them to the target list explicitly
     // (rather than failing late inside executeActions).
@@ -194,6 +87,8 @@ export async function cmdApply(
   const skillIdToName = new Map<string, string>();
   for (const [localName, e] of Object.entries(state.skills)) skillIdToName.set(e.id, localName);
   printPlan(actions, { ...opts, agentIdToName, skillIdToName });
+  // Before the prompt, so the ambiguity is seen before anything is approved.
+  process.stdout.write(planned.ambiguityWarnings);
 
   if (!hasChanges(actions)) {
     // No remote operations, but refresh stale state with noop id/version values.

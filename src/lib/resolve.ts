@@ -1,5 +1,12 @@
 import { retrieveAgent } from './agents.js';
-import { idsTrackedElsewhere, requireUnique, type RemoteLookup } from './remote-lookup.js';
+import {
+  AmbiguousRemoteNameError,
+  idsTrackedElsewhere,
+  requireUnique,
+  type RemoteLookup,
+  type RemoteResourceKind,
+  type NameLookup,
+} from './remote-lookup.js';
 import type {
   AgentConfig,
   DeploymentAgentRef,
@@ -136,10 +143,32 @@ export function extractPendingMemoryStore(v: unknown): string | null {
 
 // ---------------- single-name resolution ----------------
 
+/**
+ * Several active remote resources carry the referenced name and state does not
+ * say which one is meant. Returned instead of thrown so the caller can decide
+ * whether the reference matters for the targets of this run.
+ */
+export type AmbiguousResolution = { kind: 'ambiguous'; error: AmbiguousRemoteNameError };
+
+/** `requireUnique` that reports an ambiguous match as a value instead of throwing. */
+function uniqueOrAmbiguous<T extends { id: string; created_at?: string }>(
+  kind: RemoteResourceKind,
+  name: string,
+  found: NameLookup<T>,
+): { remote: T | null } | AmbiguousResolution {
+  try {
+    return { remote: requireUnique(kind, name, found) };
+  } catch (err) {
+    if (err instanceof AmbiguousRemoteNameError) return { kind: 'ambiguous', error: err };
+    throw err;
+  }
+}
+
 export type AgentResolution =
   | { kind: 'resolved'; id: string; version: number }
   | { kind: 'forward'; name: string; sentinel: string }
-  | { kind: 'missing' };
+  | { kind: 'missing' }
+  | AmbiguousResolution;
 
 export async function resolveAgentName(
   name: string,
@@ -161,7 +190,9 @@ export async function resolveAgentName(
     };
   }
 
-  const remote = requireUnique('agent', name, await ctx.lookup.agentByName(name));
+  const found = uniqueOrAmbiguous('agent', name, await ctx.lookup.agentByName(name));
+  if ('kind' in found) return found;
+  const remote = found.remote;
   if (remote) return { kind: 'resolved', id: remote.id, version: remote.version };
 
   if (ctx.localAgents.has(name)) {
@@ -243,7 +274,8 @@ function createdAgentVersionById(
 export type SkillResolution =
   | { kind: 'resolved'; id: string }
   | { kind: 'forward'; name: string; sentinel: string }
-  | { kind: 'missing' };
+  | { kind: 'missing' }
+  | AmbiguousResolution;
 
 export async function resolveSkillName(
   name: string,
@@ -252,13 +284,15 @@ export async function resolveSkillName(
   const tracked = ctx.state.skills[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
-  const remote = requireUnique(
+  const found = uniqueOrAmbiguous(
     'skill',
     name,
     await ctx.lookup.skillByDisplayTitle(name, {
       excludeIds: idsTrackedElsewhere(ctx.state.skills, name),
     }),
   );
+  if ('kind' in found) return found;
+  const remote = found.remote;
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localSkills.has(name)) {
@@ -271,7 +305,8 @@ export async function resolveSkillName(
 export type RefResolution =
   | { kind: 'resolved'; id: string }
   | { kind: 'forward'; name: string; sentinel: string }
-  | { kind: 'missing' };
+  | { kind: 'missing' }
+  | AmbiguousResolution;
 
 export async function resolveEnvironmentName(
   name: string,
@@ -284,13 +319,15 @@ export async function resolveEnvironmentName(
   // manifest's remote name (the same name `computePlan` adopts by). Anything
   // else is a best-effort lookup by the reference string itself.
   const remoteName = ctx.localEnvironments.get(name) ?? name;
-  const remote = requireUnique(
+  const found = uniqueOrAmbiguous(
     'environment',
     remoteName,
     await ctx.lookup.environmentByName(remoteName, {
       excludeIds: idsTrackedElsewhere(ctx.state.environments, name),
     }),
   );
+  if ('kind' in found) return found;
+  const remote = found.remote;
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localEnvironments.has(name)) {
@@ -308,13 +345,15 @@ export async function resolveVaultName(
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
   const remoteName = ctx.localVaults.get(name) ?? name;
-  const remote = requireUnique(
+  const found = uniqueOrAmbiguous(
     'vault',
     remoteName,
     await ctx.lookup.vaultByDisplayName(remoteName, {
       excludeIds: idsTrackedElsewhere(ctx.state.vaults, name),
     }),
   );
+  if ('kind' in found) return found;
+  const remote = found.remote;
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localVaults.has(name)) {
@@ -332,13 +371,15 @@ export async function resolveMemoryStoreName(
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
   const remoteName = ctx.localMemoryStores.get(name) ?? name;
-  const remote = requireUnique(
+  const found = uniqueOrAmbiguous(
     'memory_store',
     remoteName,
     await ctx.lookup.memoryStoreByName(remoteName, {
       excludeIds: idsTrackedElsewhere(ctx.state.memory_stores, name),
     }),
   );
+  if ('kind' in found) return found;
+  const remote = found.remote;
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localMemoryStores.has(name)) {
@@ -364,6 +405,12 @@ export interface ResolvedDeploymentConfig {
   missingRefs: string[];
   /** Pinned-id-vs-name assertion failures — fatal. */
   idMismatches: string[];
+  /**
+   * References whose name matches several active remote resources. The ref is
+   * left as a placeholder in `config`, so the deployment must not be applied
+   * while this is non-empty; the caller decides whether that is fatal.
+   */
+  ambiguousRefs: AmbiguousRemoteNameError[];
 }
 
 function normalizeAgentRef(agent: string | DeploymentAgentRef): DeploymentAgentRef {
@@ -388,6 +435,7 @@ export async function resolveDeploymentConfig(
   const forwardMemoryStoreDeps: string[] = [];
   const missingRefs: string[] = [];
   const idMismatches: string[] = [];
+  const ambiguousRefs: AmbiguousRemoteNameError[] = [];
 
   // ----- agent -----
   const agentRef = normalizeAgentRef(config.agent);
@@ -400,6 +448,8 @@ export async function resolveDeploymentConfig(
         idMismatches.push(
           `agent "${agentRef.name}" pinned id=${agentRef.id}, resolved id=${res.id}`,
         );
+      } else if (res.kind === 'ambiguous') {
+        ambiguousRefs.push(res.error);
       }
     }
   } else if (agentRef.name) {
@@ -409,6 +459,9 @@ export async function resolveDeploymentConfig(
     } else if (res.kind === 'forward') {
       forwardAgentDeps.push(agentRef.name);
       resolvedAgent = { id: res.sentinel, version: agentRef.version };
+    } else if (res.kind === 'ambiguous') {
+      ambiguousRefs.push(res.error);
+      resolvedAgent = { id: agentRef.name, version: agentRef.version };
     } else {
       missingRefs.push(`agent "${agentRef.name}"`);
       resolvedAgent = { id: agentRef.name, version: agentRef.version };
@@ -429,6 +482,9 @@ export async function resolveDeploymentConfig(
     } else if (res.kind === 'forward') {
       forwardEnvDeps.push(config.environment);
       environmentId = res.sentinel;
+    } else if (res.kind === 'ambiguous') {
+      ambiguousRefs.push(res.error);
+      environmentId = config.environment;
     } else {
       missingRefs.push(`environment "${config.environment}"`);
       environmentId = config.environment;
@@ -450,6 +506,9 @@ export async function resolveDeploymentConfig(
       } else if (res.kind === 'forward') {
         forwardVaultDeps.push(ref);
         vaultIds.push(res.sentinel);
+      } else if (res.kind === 'ambiguous') {
+        ambiguousRefs.push(res.error);
+        vaultIds.push(ref);
       } else {
         missingRefs.push(`vault "${ref}"`);
         vaultIds.push(ref);
@@ -478,6 +537,8 @@ export async function resolveDeploymentConfig(
           idMismatches.push(
             `memory store "${name}" pinned memory_store_id=${pinned}, resolved memory_store_id=${res.id}`,
           );
+        } else if (res.kind === 'ambiguous') {
+          ambiguousRefs.push(res.error);
         }
         newResources.push({ ...others, memory_store_id: pinned });
         continue;
@@ -488,6 +549,9 @@ export async function resolveDeploymentConfig(
       } else if (res.kind === 'forward') {
         forwardMemoryStoreDeps.push(name);
         id = res.sentinel;
+      } else if (res.kind === 'ambiguous') {
+        ambiguousRefs.push(res.error);
+        id = name;
       } else {
         missingRefs.push(`memory store "${name}"`);
         id = name;
@@ -515,6 +579,7 @@ export async function resolveDeploymentConfig(
     forwardMemoryStoreDeps,
     missingRefs,
     idMismatches,
+    ambiguousRefs,
   };
 }
 
@@ -603,6 +668,12 @@ export interface ResolvedConfig {
    * resolved=<actual>`. Surfaced to the caller, who should fail the plan.
    */
   idMismatches: string[];
+  /**
+   * Name-based refs that match several active remote resources. The ref is
+   * left as written in `config`, so the agent must not be applied while this
+   * is non-empty; the caller decides whether that is fatal.
+   */
+  ambiguousRefs: AmbiguousRemoteNameError[];
 }
 
 /**
@@ -621,6 +692,7 @@ export async function resolveAgentConfig(
   const missingSkillRefs: string[] = [];
   const latestAgentVersionRefs: { name: string; id: string; index: number }[] = [];
   const idMismatches: string[] = [];
+  const ambiguousRefs: AmbiguousRemoteNameError[] = [];
 
   const resolved: AgentConfig = { ...config };
 
@@ -642,6 +714,8 @@ export async function resolveAgentConfig(
         const res = await resolveAgentName(e.name, ctx);
         if (res.kind === 'resolved' && res.id !== e.id) {
           idMismatches.push(`agent "${e.name}" pinned id=${e.id}, resolved id=${res.id}`);
+        } else if (res.kind === 'ambiguous') {
+          ambiguousRefs.push(res.error);
         }
         if (shouldResolveAgentVersion(e.version)) {
           latestAgentVersionRefs.push({ name: e.name, id: e.id, index: idx });
@@ -682,6 +756,9 @@ export async function resolveAgentConfig(
             id: res.sentinel,
             ...(e.version !== undefined ? { version: e.version } : {}),
           });
+        } else if (res.kind === 'ambiguous') {
+          ambiguousRefs.push(res.error);
+          newAgents.push(entry);
         } else {
           missingAgentRefs.push(e.name);
           newAgents.push(entry);
@@ -732,6 +809,8 @@ export async function resolveAgentConfig(
           idMismatches.push(
             `skill "${e.name}" pinned skill_id=${e.skill_id}, resolved skill_id=${res.id}`,
           );
+        } else if (res.kind === 'ambiguous') {
+          ambiguousRefs.push(res.error);
         }
         newSkills.push(entry);
         continue;
@@ -757,6 +836,9 @@ export async function resolveAgentConfig(
             skill_id: res.sentinel,
             ...(e.version !== undefined ? { version: e.version } : {}),
           });
+        } else if (res.kind === 'ambiguous') {
+          ambiguousRefs.push(res.error);
+          newSkills.push(entry);
         } else {
           missingSkillRefs.push(e.name);
           newSkills.push(entry);
@@ -776,6 +858,7 @@ export async function resolveAgentConfig(
     missingSkillRefs,
     latestAgentVersionRefs,
     idMismatches,
+    ambiguousRefs,
   };
 }
 

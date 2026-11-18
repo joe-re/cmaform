@@ -44,6 +44,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   as are a string-form `model` and an omitted `speed` (#35).
 - Skills discovered by `init` / `sync` / `pull` record an unknown hash, so the
   next `plan` shows them as an update instead of unchanged (#35).
+- A targeted `plan` / `apply` no longer exits 2 on an ambiguous remote name that
+  the targets do not depend on. It fails only when a target selects the
+  ambiguous resource or an action that references it, and lists every such
+  name; otherwise the ambiguity is shown as a warning under the plan. Without
+  targets it still exits 2, now listing all ambiguous names (#44).
+- A `kind:name` target whose kind is not a known kind (for example
+  `deploymnt:nightly`) is reported as an unknown kind, with the valid kinds and
+  a `did you mean` suggestion, instead of as a missing resource (#44).
 
 ## [0.4.0] - 2026-06-16
 

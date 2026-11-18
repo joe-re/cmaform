@@ -23,7 +23,12 @@ import {
   prettifySentinelsForDisplay,
   pendingSkillSentinel,
   resolveAgentConfig,
+  resolveAgentName,
   resolveDeploymentConfig,
+  resolveEnvironmentName,
+  resolveMemoryStoreName,
+  resolveSkillName,
+  resolveVaultName,
   rewriteAgentRefsToNameForm,
   rewriteSkillRefsToNameForm,
   substitutePendingDeploymentIds,
@@ -663,9 +668,10 @@ describe('resolveDeploymentConfig', () => {
     expect(r.forwardEnvDeps).toEqual(['python-dev']);
   });
 
-  it('throws when an untracked environment name matches several active remotes', async () => {
+  it('reports an untracked environment name that matches several active remotes', async () => {
     const ctx = makeCtx({
       remoteAgents: { 'spec-qa': null },
+      localAgents: { 'spec-qa': { name: 'spec-qa' } },
       remoteEnvs: {
         'python-dev': [
           { id: 'env_1', name: 'python-dev' },
@@ -673,9 +679,16 @@ describe('resolveDeploymentConfig', () => {
         ] as RemoteEnvironment[],
       },
     });
-    await expect(resolveDeploymentConfig(baseDeployment(), ctx)).rejects.toBeInstanceOf(
-      AmbiguousRemoteNameError,
-    );
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.ambiguousRefs).toHaveLength(1);
+    expect(r.ambiguousRefs[0]).toBeInstanceOf(AmbiguousRemoteNameError);
+    expect(r.ambiguousRefs[0]).toMatchObject({
+      resourceKind: 'environment',
+      resourceName: 'python-dev',
+    });
+    // The placeholder is the written name, never an id; commands drop or reject the action.
+    expect(r.config.environment_id).toBe('python-dev');
+    expect(r.missingRefs).toEqual([]);
   });
 
   it('resolves a tracked agent even when several remote agents share its name', async () => {
@@ -695,8 +708,11 @@ describe('resolveDeploymentConfig', () => {
     expect(r.config.agent.id).toBe('agent_2');
   });
 
-  it('throws when an untracked agent name matches several active remotes', async () => {
+  it('reports an untracked agent name that matches several active remotes', async () => {
+    const state = emptyState();
+    state.environments['python-dev'] = { id: 'env_1', name: 'python-dev' };
     const ctx = makeCtx({
+      state,
       remoteAgents: {
         'spec-qa': [
           { id: 'agent_1', version: 1 },
@@ -704,9 +720,9 @@ describe('resolveDeploymentConfig', () => {
         ] as RemoteAgent[],
       },
     });
-    await expect(resolveDeploymentConfig(baseDeployment(), ctx)).rejects.toBeInstanceOf(
-      AmbiguousRemoteNameError,
-    );
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.ambiguousRefs).toMatchObject([{ resourceKind: 'agent', resourceName: 'spec-qa' }]);
+    expect(r.config.agent.id).toBe('spec-qa');
   });
 });
 
@@ -901,5 +917,121 @@ describe('substitutePendingDeploymentIds — memory stores', () => {
     expect(() => substitutePendingDeploymentIds(config(), created({}))).toThrow(
       'internal: memory store "notes" referenced but not yet created',
     );
+  });
+});
+
+describe('ambiguous references are reported, not thrown', () => {
+  const two = <T extends { id: string }>(make: (id: string) => T): T[] => [
+    make('x_1'),
+    make('x_2'),
+  ];
+
+  function deployment(overrides: Partial<DeploymentConfig>): DeploymentConfig {
+    return {
+      name: 'nightly',
+      agent: { id: 'agent_raw' },
+      environment: 'env_raw',
+      initial_events: [],
+      ...overrides,
+    };
+  }
+
+  it('collects an ambiguous memory store in resources[]', async () => {
+    const ctx = makeCtx({
+      remoteMemoryStores: {
+        notes: two((id) => ({ id, name: 'notes' }) as RemoteMemoryStore),
+      },
+    });
+    const r = await resolveDeploymentConfig(
+      deployment({ resources: [{ type: 'memory_store', memory_store: 'notes' }] }),
+      ctx,
+    );
+    expect(r.ambiguousRefs).toMatchObject([
+      { resourceKind: 'memory_store', resourceName: 'notes' },
+    ]);
+    expect(r.config.resources).toEqual([{ type: 'memory_store', memory_store_id: 'notes' }]);
+  });
+
+  it('collects an ambiguous vault in vault_ids', async () => {
+    const ctx = makeCtx({
+      remoteVaults: { bot: two((id) => ({ id, display_name: 'bot' }) as RemoteVault) },
+    });
+    const r = await resolveDeploymentConfig(deployment({ vault_ids: ['bot'] }), ctx);
+    expect(r.ambiguousRefs).toMatchObject([{ resourceKind: 'vault', resourceName: 'bot' }]);
+    expect(r.config.vault_ids).toEqual(['bot']);
+  });
+
+  it('collects an ambiguous skill and a sub-agent in an agent config', async () => {
+    const ctx = makeCtx({
+      remoteSkills: { lint: two((id) => ({ id, display_title: 'lint' }) as RemoteSkill) },
+      remoteAgents: { helper: two((id) => ({ id, version: 1, name: 'helper' }) as RemoteAgent) },
+    });
+    const r = await resolveAgentConfig(
+      {
+        name: 'coordinator',
+        skills: [{ type: 'custom', name: 'lint' }],
+        multiagent: { type: 'coordinator', agents: [{ type: 'agent', name: 'helper' }] },
+      },
+      ctx,
+    );
+    expect(r.ambiguousRefs.map((e) => `${e.resourceKind}:${e.resourceName}`)).toEqual([
+      'agent:helper',
+      'skill:lint',
+    ]);
+    expect(r.missingAgentRefs).toEqual([]);
+    expect(r.missingSkillRefs).toEqual([]);
+  });
+
+  it('does not report refs tracked in state, even when remote names are ambiguous', async () => {
+    const state = emptyState();
+    state.skills.lint = { id: 'skill_1', version: '1', hash: 'h', display_title: 'lint' };
+    state.memory_stores.notes = { id: 'ms_2', name: 'notes' };
+    state.environments.py = { id: 'env_2', name: 'py' };
+    state.vaults.bot = { id: 'vlt_2', display_name: 'bot' };
+    const ctx = makeCtx({
+      state,
+      remoteSkills: { lint: two((id) => ({ id, display_title: 'lint' }) as RemoteSkill) },
+      remoteMemoryStores: {
+        notes: two((id) => ({ id, name: 'notes' }) as RemoteMemoryStore),
+      },
+    });
+    const a = await resolveAgentConfig(
+      { name: 'a', skills: [{ type: 'custom', name: 'lint' }] },
+      ctx,
+    );
+    const d = await resolveDeploymentConfig(
+      deployment({
+        environment: 'py',
+        vault_ids: ['bot'],
+        resources: [{ type: 'memory_store', memory_store: 'notes' }],
+      }),
+      ctx,
+    );
+    expect(a.ambiguousRefs).toEqual([]);
+    expect(d.ambiguousRefs).toEqual([]);
+    expect(d.config.resources).toEqual([{ type: 'memory_store', memory_store_id: 'ms_2' }]);
+  });
+
+  it('returns an ambiguous kind from each single-name resolver', async () => {
+    const ctx = makeCtx({
+      remoteEnvs: { py: two((id) => ({ id, name: 'py' }) as RemoteEnvironment) },
+      remoteVaults: { bot: two((id) => ({ id, display_name: 'bot' }) as RemoteVault) },
+      remoteMemoryStores: {
+        notes: two((id) => ({ id, name: 'notes' }) as RemoteMemoryStore),
+      },
+      remoteSkills: { lint: two((id) => ({ id, display_title: 'lint' }) as RemoteSkill) },
+      remoteAgents: { helper: two((id) => ({ id, version: 1, name: 'helper' }) as RemoteAgent) },
+    });
+    const results = [
+      await resolveEnvironmentName('py', ctx),
+      await resolveVaultName('bot', ctx),
+      await resolveMemoryStoreName('notes', ctx),
+      await resolveSkillName('lint', ctx),
+      await resolveAgentName('helper', ctx),
+    ];
+    for (const r of results) {
+      expect(r.kind).toBe('ambiguous');
+      if (r.kind === 'ambiguous') expect(r.error).toBeInstanceOf(AmbiguousRemoteNameError);
+    }
   });
 });
