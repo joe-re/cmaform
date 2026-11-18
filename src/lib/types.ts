@@ -27,6 +27,7 @@ export interface RemoteAgent {
   version: number;
   name: string;
   archived_at: string | null;
+  created_at?: string;
   model?: unknown;
   description?: string | null;
   system?: string | null;
