@@ -823,6 +823,56 @@ export function filterActionsByTargets<E extends ResourceRef = ResourceRef>(
   return { filtered, unmatched, selectedExtra };
 }
 
+/** A target of the form `<prefix>:<rest>` whose prefix is not a resource kind. */
+export interface UnknownKindTarget {
+  target: string;
+  /** The unrecognised part before the first `:`. */
+  kind: string;
+  /** `<kind>:<rest>` for every known resource named `<rest>`; empty when none. */
+  suggestions: string[];
+}
+
+/**
+ * Split targets that matched nothing into plain "no such resource" ones and
+ * `kind:name` ones whose kind is not recognised (likely a typo). Parsing is
+ * unchanged: a name that contains `:` and exists never reaches this function.
+ * `known` are the resources a suggestion may point to.
+ */
+export function classifyUnmatchedTargets(
+  unmatched: string[],
+  known: ResourceRef[],
+): { notFound: string[]; unknownKind: UnknownKindTarget[] } {
+  const notFound: string[] = [];
+  const unknownKind: UnknownKindTarget[] = [];
+  const kindOrder = validResourceKinds().canonical;
+  for (const target of unmatched) {
+    const colon = target.indexOf(':');
+    if (colon <= 0 || RESOURCE_KIND_ALIASES[target.slice(0, colon)]) {
+      notFound.push(target);
+      continue;
+    }
+    const rest = target.slice(colon + 1);
+    const suggestions = [
+      ...new Set(known.filter((r) => r.name === rest).map((r) => `${r.kind}:${r.name}`)),
+    ].sort(
+      (a, b) =>
+        kindOrder.indexOf(a.slice(0, a.indexOf(':')) as ResourceKind) -
+        kindOrder.indexOf(b.slice(0, b.indexOf(':')) as ResourceKind),
+    );
+    unknownKind.push({ target, kind: target.slice(0, colon), suggestions });
+  }
+  return { notFound, unknownKind };
+}
+
+/** Kind names accepted in targets: canonical ones first, then their aliases. */
+export function validResourceKinds(): { canonical: ResourceKind[]; aliases: string[] } {
+  const entries = Object.entries(RESOURCE_KIND_ALIASES);
+  return {
+    canonical: entries.filter(([alias, kind]) => alias === kind).map(([, kind]) => kind),
+    aliases: entries.filter(([alias, kind]) => alias !== kind).map(([alias]) => alias),
+  };
+}
+
 export function hasChanges(actions: Action[]): boolean {
   return actions.some(
     (a) =>

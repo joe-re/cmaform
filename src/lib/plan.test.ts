@@ -33,9 +33,11 @@ import { AmbiguousRemoteNameError, type NameLookup, type RemoteLookup } from './
 import { retrieveVault } from './vaults.js';
 import {
   actionKey,
+  classifyUnmatchedTargets,
   computePlan,
   filterActionsByTargets,
   hasChanges,
+  validResourceKinds,
   type Action,
   type PlanAmbiguity,
 } from './plan.js';
@@ -1120,5 +1122,75 @@ describe('filterActionsByTargets — resources without an action', () => {
     expect(filterActionsByTargets([other], ['vault:notes'], [notes]).unmatched).toEqual([
       'vault:notes',
     ]);
+  });
+});
+
+describe('classifyUnmatchedTargets', () => {
+  const known = [
+    { kind: 'deployment', name: 'nightly' },
+    { kind: 'agent', name: 'nightly' },
+    { kind: 'memory_store', name: 'notes' },
+  ] as const;
+
+  it('flags an unknown kind and suggests the kind that has that name', () => {
+    expect(classifyUnmatchedTargets(['deploymnt:notes'], [...known])).toEqual({
+      notFound: [],
+      unknownKind: [
+        { target: 'deploymnt:notes', kind: 'deploymnt', suggestions: ['memory_store:notes'] },
+      ],
+    });
+  });
+
+  it('lists every kind that has the name, in kind order', () => {
+    const r = classifyUnmatchedTargets(['foo:nightly'], [...known]);
+    expect(r.unknownKind[0].suggestions).toEqual(['agent:nightly', 'deployment:nightly']);
+  });
+
+  it('gives no suggestion when nothing has that name', () => {
+    const r = classifyUnmatchedTargets(['foo:missing'], [...known]);
+    expect(r.unknownKind).toEqual([{ target: 'foo:missing', kind: 'foo', suggestions: [] }]);
+  });
+
+  it('keeps a valid kind with a missing name as not found', () => {
+    const r = classifyUnmatchedTargets(['deployment:nope', 'plain', 'env:x'], [...known]);
+    expect(r).toEqual({ notFound: ['deployment:nope', 'plain', 'env:x'], unknownKind: [] });
+  });
+
+  it('keeps a target with an empty prefix as not found', () => {
+    expect(classifyUnmatchedTargets([':nightly'], [...known]).notFound).toEqual([':nightly']);
+  });
+
+  it('splits a mix of both kinds of mistake', () => {
+    const r = classifyUnmatchedTargets(['foo:nightly', 'deployment:nope'], [...known]);
+    expect(r.notFound).toEqual(['deployment:nope']);
+    expect(r.unknownKind.map((u) => u.target)).toEqual(['foo:nightly']);
+  });
+
+  it('does not report an existing resource whose name contains a colon', () => {
+    const colon: Action = { type: 'noop', name: 'team:ops', id: 'agent_3', version: 1 };
+    const { unmatched } = filterActionsByTargets([colon], ['team:ops']);
+    expect(unmatched).toEqual([]);
+  });
+});
+
+describe('validResourceKinds', () => {
+  it('puts canonical kinds first and every other spelling in aliases', () => {
+    expect(validResourceKinds()).toEqual({
+      canonical: ['agent', 'skill', 'memory_store', 'environment', 'vault', 'deployment'],
+      aliases: [
+        'agents',
+        'skills',
+        'memory_stores',
+        'memstore',
+        'memstores',
+        'environments',
+        'env',
+        'envs',
+        'vaults',
+        'deployments',
+        'deploy',
+        'deploys',
+      ],
+    });
   });
 });

@@ -5,8 +5,12 @@ import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
 import {
   actionKey,
+  actionResourceKind,
+  actionResourceName,
+  classifyUnmatchedTargets,
   computePlan,
   filterActionsByTargets,
+  validResourceKinds,
   type Action,
   type PlanAmbiguity,
   type ResourceRef,
@@ -159,11 +163,10 @@ export async function runPlanPipeline(
       ambiguities,
     );
     if (unmatched.length > 0) {
-      process.stderr.write(
-        formatErrorHeadline(
-          `the following resource names were not found in local YAML, state, or remote: ${unmatched.map((t) => JSON.stringify(t)).join(', ')}`,
-        ) + '\n',
-      );
+      reportUnmatchedTargets(unmatched, [
+        ...allActions.map((a) => ({ kind: actionResourceKind(a), name: actionResourceName(a) })),
+        ...ambiguities,
+      ]);
       failed = true;
     }
     actions = filtered;
@@ -226,4 +229,35 @@ function collectFatalAmbiguities(
     if (!e.referencedBy.includes(label)) e.referencedBy.push(label);
   }
   return [...byName.values()];
+}
+
+function reportUnmatchedTargets(unmatched: string[], known: ResourceRef[]): void {
+  const { notFound, unknownKind } = classifyUnmatchedTargets(unmatched, known);
+  if (notFound.length > 0) {
+    process.stderr.write(
+      formatErrorHeadline(
+        `the following resource names were not found in local YAML, state, or remote: ${notFound.map((t) => JSON.stringify(t)).join(', ')}`,
+      ) + '\n',
+    );
+  }
+  const { canonical, aliases } = validResourceKinds();
+  for (const u of unknownKind) {
+    process.stderr.write(
+      formatErrorHeadline(
+        `unknown resource kind ${JSON.stringify(u.kind)} in target ${JSON.stringify(u.target)}`,
+      ) + '\n',
+    );
+    process.stderr.write(
+      '  ' +
+        formatErrorDetail(`valid kinds: ${canonical.join(', ')} (aliases: ${aliases.join(', ')})`) +
+        '\n',
+    );
+    if (u.suggestions.length > 0) {
+      const list =
+        u.suggestions.length === 1
+          ? u.suggestions[0]
+          : `${u.suggestions.slice(0, -1).join(', ')} or ${u.suggestions[u.suggestions.length - 1]}`;
+      process.stderr.write('  ' + formatErrorDetail(`did you mean ${list}?`) + '\n');
+    }
+  }
 }

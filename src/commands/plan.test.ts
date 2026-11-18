@@ -178,4 +178,22 @@ describe('cmdPlan — ambiguous remote names and targets', () => {
     );
     expect(stdout).toContain('Plan (deployments):    0 to add');
   });
+
+  it('reports an unknown kind with a suggestion instead of "not found"', async () => {
+    deploymentReferencingAmbiguousEnvironment();
+    vi.mocked(listEnvironments).mockResolvedValue([{ id: 'env_1', name: 'py' }] as never);
+    expect(await cmdPlan(['foo:nightly'])).toBe(2);
+    expect(stderr).toContain('unknown resource kind "foo" in target "foo:nightly"');
+    expect(stderr).toContain(
+      'valid kinds: agent, skill, memory_store, environment, vault, deployment',
+    );
+    expect(stderr).toContain('did you mean deployment:nightly?');
+    expect(stderr).not.toContain('were not found');
+  });
+
+  it('keeps the plain message for a valid kind with an unknown name', async () => {
+    expect(await cmdPlan(['deployment:nope'])).toBe(2);
+    expect(stderr).toContain('were not found in local YAML, state, or remote: "deployment:nope"');
+    expect(stderr).not.toContain('unknown resource kind');
+  });
 });
