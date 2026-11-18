@@ -4,6 +4,12 @@ description: Minimal example deployment that runs the hello agent on a schedule.
 # set. Raw ids (agent_... / env_...) are also accepted.
 agent: hello
 environment: hello-env
+# Mounted into each session. `memory_store` is the memory_stores/ directory name;
+# a raw `memory_store_id: memstore_...` is also accepted.
+resources:
+  - type: memory_store
+    memory_store: hello-store
+    access: read_write
 # Sent to each session the deployment starts. At least 1, at most 50.
 initial_events:
   - type: user.message

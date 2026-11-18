@@ -34,6 +34,33 @@ function createSkill(localName: string): Action {
   };
 }
 
+function createMemoryStore(localName: string): Action {
+  return {
+    type: 'memstore_create',
+    localName,
+    config: { name: localName },
+    dirPath: `memory_stores/${localName}`,
+  };
+}
+
+function createDeployment(localName: string, forwardMemoryStoreDeps: string[]): Action {
+  return {
+    type: 'deploy_create',
+    localName,
+    config: {
+      name: localName,
+      agent: { id: 'agent_1' },
+      environment_id: 'env_1',
+      initial_events: [],
+    },
+    dirPath: `deployments/${localName}`,
+    forwardAgentDeps: [],
+    forwardEnvDeps: [],
+    forwardVaultDeps: [],
+    forwardMemoryStoreDeps,
+  };
+}
+
 function names(actions: Action[]): string[] {
   return actions.map(actionId);
 }
@@ -51,6 +78,13 @@ describe('topoSortActions', () => {
     const skill = createSkill('my-skill');
     const sorted = topoSortActions([agent, skill]);
     expect(names(sorted)).toEqual(['skill:my-skill', 'agent:uses-skill']);
+  });
+
+  it('places memstore_create before a deployment that forward-depends on it', () => {
+    const deployment = createDeployment('nightly', ['notes']);
+    const store = createMemoryStore('notes');
+    const sorted = topoSortActions([deployment, store]);
+    expect(names(sorted)).toEqual(['memory_store:notes', 'deployment:nightly']);
   });
 
   it('throws on a dependency cycle', () => {

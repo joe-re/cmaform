@@ -4,7 +4,8 @@ import path from 'node:path';
 import { listAgentFiles } from '../lib/agents.js';
 import { formatErrorHeadline } from '../lib/ansi.js';
 import { CMAFORM_DIR } from '../lib/config.js';
-import { rewriteYamlRefsToNameForm } from '../lib/fmt.js';
+import { listDeploymentManifestFiles } from '../lib/deployments.js';
+import { rewriteDeploymentRefsToNameForm, rewriteYamlRefsToNameForm } from '../lib/fmt.js';
 import { loadState } from '../lib/state.js';
 
 /**
@@ -27,26 +28,43 @@ import { loadState } from '../lib/state.js';
  * One-shot migration helper for repositories that have been managing
  * `multiagent.agents` with hand-copied IDs and now want to switch to the
  * name-based references documented in the README.
+ *
+ * Deployment manifests are rewritten the same way, but only for
+ * `resources[].memory_store_id` (agent / environment / vault references are
+ * left alone).
  */
 export async function cmdFmt(): Promise<number> {
   const state = await loadState();
 
-  if (Object.keys(state.agents).length === 0 && Object.keys(state.skills).length === 0) {
+  if (
+    Object.keys(state.agents).length === 0 &&
+    Object.keys(state.skills).length === 0 &&
+    Object.keys(state.memory_stores).length === 0
+  ) {
     process.stderr.write(
       formatErrorHeadline(
-        'cmaform.state.json has no agents or skills — nothing to rewrite. Run `cmaform pull <id>` or `cmaform init` first.',
+        'cmaform.state.json has no agents, skills or memory stores — nothing to rewrite. Run `cmaform pull <id>` or `cmaform init` first.',
       ) + '\n',
     );
     return 2;
   }
 
-  const files = await listAgentFiles();
+  const targets = [
+    ...(await listAgentFiles()).map((filePath) => ({
+      filePath,
+      rewrite: rewriteYamlRefsToNameForm,
+    })),
+    ...(await listDeploymentManifestFiles()).map((filePath) => ({
+      filePath,
+      rewrite: rewriteDeploymentRefsToNameForm,
+    })),
+  ];
   let filesRewritten = 0;
   let refsRewritten = 0;
 
-  for (const filePath of files) {
+  for (const { filePath, rewrite } of targets) {
     const before = await fs.readFile(filePath, 'utf-8');
-    const { text: after, changed } = rewriteYamlRefsToNameForm(before, state);
+    const { text: after, changed } = rewrite(before, state);
     if (changed === 0) continue;
     await fs.writeFile(filePath, after, 'utf-8');
     process.stdout.write(

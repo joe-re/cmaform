@@ -68,10 +68,10 @@ cmaform apply                                 # 確認 → Anthropic に反映
 | `cmaform pull <id> [--by-id]`                           | `agent_*` / `skill_*` / `memstore_*` / `env_*` / `vlt_*` / `deploy_*` ID から remote → local / state に取り込む。`--by-id` で agent / deployment YAML の参照を name 形式に書き換えず生 ID のまま出力 |
 | `cmaform plan [--verbose\|-v] [target...]`              | local YAML / state / remote の差分を Terraform 風に表示。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                               |
 | `cmaform apply [--yes\|-y] [--verbose\|-v] [target...]` | plan を表示 → 確認 → 適用 → state 保存。`init` または `pull` で作成済みの `cmaform.state.json` が必要                                                                                                |
-| `cmaform sync [--by-id]`                                | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent YAML の `multiagent.agents[]` / `skills[]` を name 形式に書き換えず生 ID のまま出力                                    |
+| `cmaform sync [--by-id]`                                | state にある全 entry を remote から取り直し YAML を再生成。`--by-id` で agent / deployment YAML の参照を name 形式に書き換えず生 ID のまま出力                                                       |
 | `cmaform init`                                          | state ファイルを remote の現状に合わせて初期化 / 同期 (remote 書き込みなし、`terraform init` 相当)                                                                                                   |
 | `cmaform list`                                          | local files / state / remote を並べて表示                                                                                                                                                            |
-| `cmaform fmt`                                           | local YAML 内の `multiagent.agents[].id` / `skills[].skill_id` を `cmaform.state.json` を引いて name 形式に書き戻す                                                                                  |
+| `cmaform fmt`                                           | agent YAML の `multiagent.agents[].id` / `skills[].skill_id` と deployment manifest の `resources[].memory_store_id` を `cmaform.state.json` を引いて name 形式に書き戻す                            |
 
 ### plan / apply の絞り込み
 
@@ -335,7 +335,10 @@ schedule:
   expression: '0 9 * * 1-5' # 平日 09:00
   timezone: Asia/Tokyo # IANA タイムゾーン
 # 任意。各セッションのコンテナにマウントするリソース。
-resources: []
+resources:
+  - type: memory_store
+    memory_store: team-notes # memory_stores/ のディレクトリ名 (または memory_store_id: memstore_...)
+    access: read_write
 # 任意。credential を供給する vault 名 または vlt_... ID。
 vault_ids: []
 metadata: {}
@@ -343,7 +346,7 @@ metadata: {}
 
 - **識別子**: `name` フィールド。`deployment_id` は state 側で保持します (YAML には書きません)。
 - **差分対象**: `name` / `description` / `agent` / `environment_id` / `initial_events` / `schedule` / `resources` / `vault_ids` / `metadata`。
-- **参照**: `agent` / `environment` / `vault_ids[]` は論理 **名前** ([Name ベース参照](#-name-ベース参照)と同じ解決ルール) または生 ID を受け付けます。**同一 apply 実行内**で作成されるリソースを名前参照した場合は forward dependency として扱われ、cmaform が先に作成してから deployment を作ります。
+- **参照**: `agent` / `environment` / `vault_ids[]` / `resources[].memory_store` は論理 **名前** ([Name ベース参照](#-name-ベース参照)と同じ解決ルール) または生 ID を受け付けます。**同一 apply 実行内**で作成されるリソースを名前参照した場合は forward dependency として扱われ、cmaform が先に作成してから deployment を作ります。
 - **agent version**: `version` を省略すると作成時の最新に追従し、以降の version 差分は diff で無視されます。`version` を固定すると変更検知 + 再ピン留めの対象になります。
 - **削除**: state にあって local に無い ⇒ `archive` (一方向。スケジュール発火は停止)。
 - **対象外**: 命令的な `pause` / `unpause` / `run` は宣言的にはモデル化しません (`status` は remote 所有)。書き込み専用の credential を含む `resources` (例: GitHub の `authorization_token`) は create/update では送信しますが diff 比較前に取り除くため、恒常的な変更としては出ません。

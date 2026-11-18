@@ -58,6 +58,7 @@ export async function cmdApply(
       skills,
       environments,
       vaults,
+      memoryStores,
       lookup,
     });
     const missing: string[] = [];
@@ -160,6 +161,11 @@ export async function cmdApply(
         for (const dep of a.forwardVaultDeps) {
           if (!inTarget.has(`vault:${dep}`)) {
             droppedDeps.push(`deployment "${a.localName}" -> vault "${dep}"`);
+          }
+        }
+        for (const dep of a.forwardMemoryStoreDeps) {
+          if (!inTarget.has(`memory_store:${dep}`)) {
+            droppedDeps.push(`deployment "${a.localName}" -> memory store "${dep}"`);
           }
         }
       }

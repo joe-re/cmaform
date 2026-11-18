@@ -21,6 +21,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   // ids known so far (seeded from state, extended as resources are created).
   const createdEnvironments = new Map<string, string>();
   const createdVaults = new Map<string, string>();
+  const createdMemoryStores = new Map<string, string>();
 
   // For agents/skills that already existed at plan time but are being
   // updated in this run, their ids are already in resolution context →
@@ -38,6 +39,9 @@ export async function executeActions(actions: Action[], state: State): Promise<v
   }
   for (const [localName, entry] of Object.entries(state.vaults)) {
     createdVaults.set(localName, entry.id);
+  }
+  for (const [localName, entry] of Object.entries(state.memory_stores)) {
+    createdMemoryStores.set(localName, entry.id);
   }
 
   for (const a of actions) {
@@ -59,6 +63,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
     }
     if (a.type === 'memstore_noop') {
       state.memory_stores[a.localName] = { id: a.id, name: a.name };
+      createdMemoryStores.set(a.localName, a.id);
       continue;
     }
     if (a.type === 'env_noop') {
@@ -148,6 +153,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
           id: created.id,
           name: created.name,
         };
+        createdMemoryStores.set(a.localName, created.id);
         process.stdout.write(` ok (id=${created.id})\n`);
       } else if (a.type === 'memstore_update') {
         process.stdout.write(`  [~] updating memory_store ${JSON.stringify(a.localName)}...`);
@@ -156,6 +162,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
           id: updated.id,
           name: updated.name,
         };
+        createdMemoryStores.set(a.localName, updated.id);
         process.stdout.write(` ok\n`);
       } else if (a.type === 'memstore_archive') {
         process.stdout.write(`  [-] archiving memory_store ${JSON.stringify(a.localName)}...`);
@@ -195,23 +202,23 @@ export async function executeActions(actions: Action[], state: State): Promise<v
         process.stdout.write(` ok\n`);
       } else if (a.type === 'deploy_create') {
         process.stdout.write(`  [+] creating deployment ${JSON.stringify(a.localName)}...`);
-        const finalConfig = substitutePendingDeploymentIds(
-          a.config,
-          createdAgents,
-          createdEnvironments,
-          createdVaults,
-        );
+        const finalConfig = substitutePendingDeploymentIds(a.config, {
+          agents: createdAgents,
+          environments: createdEnvironments,
+          vaults: createdVaults,
+          memoryStores: createdMemoryStores,
+        });
         const created = await createDeployment(finalConfig);
         state.deployments[a.localName] = { id: created.id, name: created.name };
         process.stdout.write(` ok (id=${created.id})\n`);
       } else if (a.type === 'deploy_update') {
         process.stdout.write(`  [~] updating deployment ${JSON.stringify(a.localName)}...`);
-        const finalConfig = substitutePendingDeploymentIds(
-          a.config,
-          createdAgents,
-          createdEnvironments,
-          createdVaults,
-        );
+        const finalConfig = substitutePendingDeploymentIds(a.config, {
+          agents: createdAgents,
+          environments: createdEnvironments,
+          vaults: createdVaults,
+          memoryStores: createdMemoryStores,
+        });
         const updated = await updateDeployment(a.id, finalConfig, a.remote, a.diffs);
         state.deployments[a.localName] = { id: updated.id, name: updated.name };
         process.stdout.write(` ok\n`);

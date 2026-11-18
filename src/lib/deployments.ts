@@ -41,6 +41,21 @@ async function listDeploymentDirs(): Promise<string[]> {
   }
 }
 
+/** Paths of every `deployments/<name>/manifest.yaml` that exists. */
+export async function listDeploymentManifestFiles(): Promise<string[]> {
+  const files: string[] = [];
+  for (const dirPath of await listDeploymentDirs()) {
+    const manifestPath = path.join(dirPath, DEPLOYMENT_MANIFEST_FILENAME);
+    try {
+      await fs.access(manifestPath);
+      files.push(manifestPath);
+    } catch {
+      // a directory without a manifest is reported elsewhere
+    }
+  }
+  return files;
+}
+
 async function readDeploymentManifest(dirPath: string): Promise<DeploymentConfig> {
   const manifestPath = path.join(dirPath, DEPLOYMENT_MANIFEST_FILENAME);
   let content: string;
@@ -96,8 +111,8 @@ export async function loadAllDeploymentConfigs(): Promise<
 
 /**
  * Write a remote deployment back to `deployments/<localName>/manifest.yaml`.
- * When `state` is provided, the agent / environment / vault references are
- * rewritten to their human-friendly local names wherever the id is tracked in
+ * When `state` is provided, the agent / environment / vault / memory store
+ * references are rewritten to their human-friendly local names wherever the id is tracked in
  * state; otherwise raw ids are kept.
  */
 export async function writeDeploymentManifestFromRemote(
@@ -114,7 +129,10 @@ export async function writeDeploymentManifestFromRemote(
     schedule: remote.schedule
       ? { type: 'cron', expression: remote.schedule.expression, timezone: remote.schedule.timezone }
       : undefined,
-    resources: remote.resources && remote.resources.length > 0 ? remote.resources : undefined,
+    resources:
+      remote.resources && remote.resources.length > 0
+        ? rewriteMemoryStoreResourcesToNameForm(remote.resources, state)
+        : undefined,
     vault_ids:
       remote.vault_ids && remote.vault_ids.length > 0
         ? remote.vault_ids.map((id) => vaultRefForWrite(id, state))
@@ -126,6 +144,26 @@ export async function writeDeploymentManifestFromRemote(
   const manifestPath = path.join(dirPath, DEPLOYMENT_MANIFEST_FILENAME);
   await fs.writeFile(manifestPath, stringifyYaml(out), 'utf-8');
   return manifestPath;
+}
+
+/**
+ * Rewrite `type: memory_store` resource entries whose `memory_store_id` is
+ * tracked in state to the `memory_store: <localName>` form. Other entries, ids
+ * that are not tracked, and a null `state` (`--by-id`) are left as they are.
+ */
+export function rewriteMemoryStoreResourcesToNameForm(
+  resources: unknown[],
+  state: State | null,
+): unknown[] {
+  if (!state) return resources;
+  return resources.map((entry) => {
+    if (!isPlainObject(entry) || entry.type !== 'memory_store') return entry;
+    if (typeof entry.memory_store_id !== 'string') return entry;
+    const name = memoryStoreNameById(entry.memory_store_id, state);
+    if (!name) return entry;
+    const { type, memory_store_id: _id, ...rest } = entry;
+    return { type, memory_store: name, ...rest };
+  });
 }
 
 function agentRefForWrite(
@@ -154,6 +192,13 @@ function agentNameById(id: string, state: State): string | undefined {
 
 function environmentNameById(id: string, state: State): string | undefined {
   for (const [name, entry] of Object.entries(state.environments)) {
+    if (entry.id === id) return name;
+  }
+  return undefined;
+}
+
+function memoryStoreNameById(id: string, state: State): string | undefined {
+  for (const [name, entry] of Object.entries(state.memory_stores)) {
     if (entry.id === id) return name;
   }
   return undefined;

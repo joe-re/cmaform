@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { rewriteYamlRefsToNameForm } from './fmt.js';
+import { rewriteDeploymentRefsToNameForm, rewriteYamlRefsToNameForm } from './fmt.js';
 
 const state = {
   agents: {
@@ -135,5 +135,53 @@ multiagent:
     expect(changed).toBe(1);
     expect(text).toContain('  id: claude-sonnet-4-6\n');
     expect(text).toContain('      name: spec-qa\n');
+  });
+});
+
+describe('rewriteDeploymentRefsToNameForm', () => {
+  const memState = {
+    memory_stores: {
+      notes: { id: 'memstore_01To2gJS87C8zt62oUQXNd7y', name: 'Notes' },
+    },
+  };
+
+  it('rewrites a list-item-head memory_store_id, keeping indent and "- "', () => {
+    const input = `resources:
+  - memory_store_id: memstore_01To2gJS87C8zt62oUQXNd7y
+    type: memory_store
+`;
+    const { text, changed } = rewriteDeploymentRefsToNameForm(input, memState);
+    expect(changed).toBe(1);
+    expect(text).toBe(`resources:
+  - memory_store: notes
+    type: memory_store
+`);
+  });
+
+  it('rewrites a plain-key line with quotes and a trailing comment', () => {
+    const input = `resources:
+  - type: memory_store
+    memory_store_id: "memstore_01To2gJS87C8zt62oUQXNd7y"  # shared notes
+    access: read_write
+`;
+    const { text, changed } = rewriteDeploymentRefsToNameForm(input, memState);
+    expect(changed).toBe(1);
+    expect(text).toBe(`resources:
+  - type: memory_store
+    memory_store: notes  # shared notes
+    access: read_write
+`);
+  });
+
+  it('leaves untracked ids and other reference keys unchanged', () => {
+    const input = `agent:
+  id: agent_01NgjvpMaL3DjdtDNEmYxi6c
+resources:
+  - type: memory_store
+    memory_store_id: memstore_untracked
+`;
+    const { text, changed } = rewriteDeploymentRefsToNameForm(input, memState);
+    expect(changed).toBe(0);
+    expect(text).toBe(input);
   });
 });

@@ -42,6 +42,32 @@ function idLookups(
   }));
 }
 
+/**
+ * Pure helper: rewrite a deployment manifest's text so that
+ * `memory_store_id: <id>` lines whose id is tracked in `state.memory_stores`
+ * become `memory_store: <localName>`. Handles the key as a list-item head
+ * (`- memory_store_id: ...`), quotes and trailing comments. Returns the new
+ * text and the count of rewrites.
+ */
+export function rewriteDeploymentRefsToNameForm(
+  text: string,
+  state: Pick<State, 'memory_stores'>,
+): { text: string; changed: number } {
+  let out = text;
+  let changed = 0;
+  for (const [name, entry] of Object.entries(state.memory_stores)) {
+    const pattern = new RegExp(
+      `^([ \\t]*(?:-[ \\t]+)?)memory_store_id:[ \\t]+(['"]?)${escapeRegex(entry.id)}\\2([ \\t]+#.*)?$`,
+      'gm',
+    );
+    out = out.replace(pattern, (_match, prefix, _quote, comment) => {
+      changed++;
+      return `${prefix}memory_store: ${name}${comment ?? ''}`;
+    });
+  }
+  return { text: out, changed };
+}
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

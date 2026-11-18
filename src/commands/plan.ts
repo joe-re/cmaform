@@ -50,6 +50,7 @@ export async function cmdPlan(
       skills,
       environments,
       vaults,
+      memoryStores,
       lookup,
     });
     const missing: string[] = [];

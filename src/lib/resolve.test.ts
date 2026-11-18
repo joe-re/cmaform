@@ -19,11 +19,14 @@ import {
   extractPendingAgent,
   extractPendingSkill,
   pendingAgentSentinel,
+  pendingMemoryStoreSentinel,
+  prettifySentinelsForDisplay,
   pendingSkillSentinel,
   resolveAgentConfig,
   resolveDeploymentConfig,
   rewriteAgentRefsToNameForm,
   rewriteSkillRefsToNameForm,
+  substitutePendingDeploymentIds,
   substitutePendingIds,
   type ResolutionContext,
 } from './resolve.js';
@@ -34,6 +37,8 @@ import type {
   LocalSkill,
   RemoteAgent,
   RemoteEnvironment,
+  RemoteMemoryStore,
+  ResolvedDeployment,
   RemoteSkill,
   RemoteVault,
   State,
@@ -84,6 +89,9 @@ function makeCtx(
     /** Local environment dir name -> manifest name (the name used on remote). */
     localEnvironments?: Record<string, string>;
     localVaults?: Record<string, string>;
+    /** Local memory store dir name -> manifest name (the name used on remote). */
+    localMemoryStores?: Record<string, string>;
+    remoteMemoryStores?: Seed<RemoteMemoryStore>;
     remoteAgents?: Seed<RemoteAgent>;
     remoteSkills?: Seed<RemoteSkill>;
     remoteEnvs?: Seed<RemoteEnvironment>;
@@ -95,7 +103,7 @@ function makeCtx(
     skillByDisplayTitle: fakeLookupFn('skillByDisplayTitle', opts.remoteSkills ?? {}),
     environmentByName: fakeLookupFn('environmentByName', opts.remoteEnvs ?? {}),
     vaultByDisplayName: fakeLookupFn('vaultByDisplayName', opts.remoteVaults ?? {}),
-    memoryStoreByName: fakeLookupFn('memoryStoreByName', {}),
+    memoryStoreByName: fakeLookupFn('memoryStoreByName', opts.remoteMemoryStores ?? {}),
     deploymentByName: fakeLookupFn('deploymentByName', {}),
   };
   return {
@@ -104,6 +112,7 @@ function makeCtx(
     localSkills: new Map(Object.entries(opts.localSkills ?? {})),
     localEnvironments: new Map(Object.entries(opts.localEnvironments ?? {})),
     localVaults: new Map(Object.entries(opts.localVaults ?? {})),
+    localMemoryStores: new Map(Object.entries(opts.localMemoryStores ?? {})),
     lookup,
   };
 }
@@ -697,6 +706,200 @@ describe('resolveDeploymentConfig', () => {
     });
     await expect(resolveDeploymentConfig(baseDeployment(), ctx)).rejects.toBeInstanceOf(
       AmbiguousRemoteNameError,
+    );
+  });
+});
+
+describe('memory store name references in deployment resources', () => {
+  function deploymentWith(resources: unknown[]): DeploymentConfig {
+    return {
+      name: 'nightly',
+      agent: { id: 'agent_raw' },
+      environment: 'env_raw',
+      initial_events: [],
+      resources,
+    };
+  }
+
+  it('resolves a name through state and drops the memory_store key', async () => {
+    const state = emptyState();
+    state.memory_stores['notes'] = { id: 'memstore_1', name: 'notes' };
+    const ctx = makeCtx({ state });
+    const r = await resolveDeploymentConfig(
+      deploymentWith([
+        { type: 'memory_store', memory_store: 'notes', access: 'read_write', instructions: 'hi' },
+      ]),
+      ctx,
+    );
+    expect(r.config.resources).toEqual([
+      {
+        type: 'memory_store',
+        access: 'read_write',
+        instructions: 'hi',
+        memory_store_id: 'memstore_1',
+      },
+    ]);
+    expect(r.config.resources?.[0]).not.toHaveProperty('memory_store');
+    expect(r.missingRefs).toEqual([]);
+    expect(r.forwardMemoryStoreDeps).toEqual([]);
+  });
+
+  it('resolves a name through the remote lookup', async () => {
+    const ctx = makeCtx({
+      remoteMemoryStores: { notes: { id: 'memstore_remote', name: 'notes' } as RemoteMemoryStore },
+    });
+    const r = await resolveDeploymentConfig(
+      deploymentWith([{ type: 'memory_store', memory_store: 'notes' }]),
+      ctx,
+    );
+    expect(r.config.resources).toEqual([
+      { type: 'memory_store', memory_store_id: 'memstore_remote' },
+    ]);
+  });
+
+  it("looks the store up by the manifest's name when referenced by directory name", async () => {
+    const ctx = makeCtx({
+      localMemoryStores: { notes: 'Customer Notes' },
+      // Only the manifest name is seeded: asking for "notes" would throw.
+      remoteMemoryStores: {
+        'Customer Notes': { id: 'memstore_remote', name: 'Customer Notes' } as RemoteMemoryStore,
+      },
+    });
+    const r = await resolveDeploymentConfig(
+      deploymentWith([{ type: 'memory_store', memory_store: 'notes' }]),
+      ctx,
+    );
+    expect(r.config.resources).toEqual([
+      { type: 'memory_store', memory_store_id: 'memstore_remote' },
+    ]);
+    expect(r.forwardMemoryStoreDeps).toEqual([]);
+  });
+
+  it('uses a forward sentinel for a store that only exists locally', async () => {
+    const ctx = makeCtx({
+      localMemoryStores: { notes: 'notes' },
+      remoteMemoryStores: { notes: null },
+    });
+    const r = await resolveDeploymentConfig(
+      deploymentWith([{ type: 'memory_store', memory_store: 'notes', access: 'read_only' }]),
+      ctx,
+    );
+    expect(r.forwardMemoryStoreDeps).toEqual(['notes']);
+    expect(r.config.resources).toEqual([
+      {
+        type: 'memory_store',
+        access: 'read_only',
+        memory_store_id: pendingMemoryStoreSentinel('notes'),
+      },
+    ]);
+    expect(prettifySentinelsForDisplay(r.config.resources)).toEqual([
+      {
+        type: 'memory_store',
+        access: 'read_only',
+        memory_store_id: '<pending: memory_store "notes">',
+      },
+    ]);
+  });
+
+  it('reports a name that exists nowhere as missing', async () => {
+    const ctx = makeCtx({ remoteMemoryStores: { ghost: null } });
+    const r = await resolveDeploymentConfig(
+      deploymentWith([{ type: 'memory_store', memory_store: 'ghost' }]),
+      ctx,
+    );
+    expect(r.missingRefs).toEqual(['memory store "ghost"']);
+  });
+
+  it('flags a pinned id that differs from the resolved id', async () => {
+    const state = emptyState();
+    state.memory_stores['notes'] = { id: 'memstore_1', name: 'notes' };
+    const r = await resolveDeploymentConfig(
+      deploymentWith([
+        { type: 'memory_store', memory_store: 'notes', memory_store_id: 'memstore_WRONG' },
+      ]),
+      makeCtx({ state }),
+    );
+    expect(r.idMismatches).toEqual([
+      'memory store "notes" pinned memory_store_id=memstore_WRONG, resolved memory_store_id=memstore_1',
+    ]);
+  });
+
+  it('accepts a matching name + id pair and leaves no memory_store key behind', async () => {
+    const state = emptyState();
+    state.memory_stores['notes'] = { id: 'memstore_1', name: 'notes' };
+    const r = await resolveDeploymentConfig(
+      deploymentWith([
+        { type: 'memory_store', memory_store: 'notes', memory_store_id: 'memstore_1' },
+      ]),
+      makeCtx({ state }),
+    );
+    expect(r.idMismatches).toEqual([]);
+    expect(r.config.resources).toEqual([{ type: 'memory_store', memory_store_id: 'memstore_1' }]);
+    expect(r.config.resources?.[0]).not.toHaveProperty('memory_store');
+  });
+
+  it('keeps a pinned id when the named store does not exist on remote yet', async () => {
+    const r = await resolveDeploymentConfig(
+      deploymentWith([
+        { type: 'memory_store', memory_store: 'notes', memory_store_id: 'memstore_PINNED' },
+      ]),
+      makeCtx({ localMemoryStores: { notes: 'notes' }, remoteMemoryStores: { notes: null } }),
+    );
+    expect(r.config.resources).toEqual([
+      { type: 'memory_store', memory_store_id: 'memstore_PINNED' },
+    ]);
+    expect(r.forwardMemoryStoreDeps).toEqual([]);
+    expect(r.missingRefs).toEqual([]);
+    expect(r.idMismatches).toEqual([]);
+  });
+
+  it('keeps raw-id entries and other resource types untouched', async () => {
+    const resources = [
+      { type: 'memory_store', memory_store_id: 'memstore_raw', access: 'read_only' },
+      { type: 'file', file_id: 'file_1', memory_store: 'not-a-ref' },
+      { type: 'memory_store', memory_store: 42 },
+      'weird',
+      null,
+    ];
+    const r = await resolveDeploymentConfig(deploymentWith(resources), makeCtx());
+    expect(r.config.resources).toEqual(resources);
+    expect(r.missingRefs).toEqual([]);
+  });
+});
+
+describe('substitutePendingDeploymentIds — memory stores', () => {
+  const created = (memoryStores: Record<string, string>) => ({
+    agents: new Map<string, string>(),
+    environments: new Map<string, string>(),
+    vaults: new Map<string, string>(),
+    memoryStores: new Map(Object.entries(memoryStores)),
+  });
+  const config = (): ResolvedDeployment => ({
+    name: 'nightly',
+    agent: { id: 'agent_1' },
+    environment_id: 'env_1',
+    initial_events: [],
+    resources: [
+      {
+        type: 'memory_store',
+        memory_store_id: pendingMemoryStoreSentinel('notes'),
+        access: 'read_write',
+      },
+      { type: 'memory_store', memory_store_id: 'memstore_raw' },
+    ],
+  });
+
+  it('replaces a sentinel with the created id', () => {
+    const out = substitutePendingDeploymentIds(config(), created({ notes: 'memstore_new' }));
+    expect(out.resources).toEqual([
+      { type: 'memory_store', memory_store_id: 'memstore_new', access: 'read_write' },
+      { type: 'memory_store', memory_store_id: 'memstore_raw' },
+    ]);
+  });
+
+  it('throws when the store has not been created yet', () => {
+    expect(() => substitutePendingDeploymentIds(config(), created({}))).toThrow(
+      'internal: memory store "notes" referenced but not yet created',
     );
   });
 });

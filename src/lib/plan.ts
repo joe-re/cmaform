@@ -182,6 +182,7 @@ export type Action =
       forwardAgentDeps: string[];
       forwardEnvDeps: string[];
       forwardVaultDeps: string[];
+      forwardMemoryStoreDeps: string[];
     }
   | {
       type: 'deploy_update';
@@ -196,6 +197,7 @@ export type Action =
       forwardAgentDeps: string[];
       forwardEnvDeps: string[];
       forwardVaultDeps: string[];
+      forwardMemoryStoreDeps: string[];
     }
   | {
       type: 'deploy_noop';
@@ -520,6 +522,7 @@ export async function computePlan(
       forwardAgentDeps: resolution.forwardAgentDeps,
       forwardEnvDeps: resolution.forwardEnvDeps,
       forwardVaultDeps: resolution.forwardVaultDeps,
+      forwardMemoryStoreDeps: resolution.forwardMemoryStoreDeps,
     };
     const tracked = state.deployments[localName];
     const { remote, adopted } = await findExisting({

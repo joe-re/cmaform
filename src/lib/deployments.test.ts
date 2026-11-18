@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { deploymentFieldDiffs } from './deployments.js';
-import type { RemoteDeployment, ResolvedDeployment } from './types.js';
+import { deploymentFieldDiffs, rewriteMemoryStoreResourcesToNameForm } from './deployments.js';
+import type { RemoteDeployment, ResolvedDeployment, State } from './types.js';
 
 function remote(overrides: Partial<RemoteDeployment> = {}): RemoteDeployment {
   return {
@@ -89,5 +89,44 @@ describe('deploymentFieldDiffs', () => {
     const r = remote({ vault_ids: ['vlt_a'] });
     const l = local({ vault_ids: ['vlt_a', 'vlt_b'] });
     expect(deploymentFieldDiffs(l, r).map((d) => d.field)).toEqual(['vault_ids']);
+  });
+});
+
+describe('rewriteMemoryStoreResourcesToNameForm', () => {
+  const state: State = {
+    agents: {},
+    skills: {},
+    memory_stores: { notes: { id: 'memstore_1', name: 'Notes' } },
+    environments: {},
+    vaults: {},
+    deployments: {},
+  };
+
+  it('rewrites a tracked id to the name form, keeping type first and other keys', () => {
+    const [out] = rewriteMemoryStoreResourcesToNameForm(
+      [{ memory_store_id: 'memstore_1', type: 'memory_store', access: 'read_write' }],
+      state,
+    );
+    expect(out).toEqual({ type: 'memory_store', memory_store: 'notes', access: 'read_write' });
+    expect(Object.keys(out as object)).toEqual(['type', 'memory_store', 'access']);
+  });
+
+  it('keeps an untracked id as a raw id', () => {
+    const entry = { type: 'memory_store', memory_store_id: 'memstore_other' };
+    expect(rewriteMemoryStoreResourcesToNameForm([entry], state)).toEqual([entry]);
+  });
+
+  it('keeps raw ids when state is null (--by-id)', () => {
+    const entry = { type: 'memory_store', memory_store_id: 'memstore_1' };
+    expect(rewriteMemoryStoreResourcesToNameForm([entry], null)).toEqual([entry]);
+  });
+
+  it('leaves other resource types untouched', () => {
+    const entry = { type: 'file', memory_store_id: 'memstore_1' };
+    expect(rewriteMemoryStoreResourcesToNameForm([entry, 'x', null], state)).toEqual([
+      entry,
+      'x',
+      null,
+    ]);
   });
 });
