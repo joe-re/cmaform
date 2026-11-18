@@ -128,3 +128,20 @@ export function requireUnique<T extends { id: string; created_at?: string }>(
     lookup.candidates.map((c) => ({ id: c.id, created_at: c.created_at })),
   );
 }
+
+/**
+ * Ids tracked in `entries` under a local name other than `localName`. Such a
+ * resource belongs to another manifest (typically the old name after a
+ * directory rename) and must not be adopted here, or the same remote resource
+ * would be adopted and archived in one plan.
+ */
+export function idsTrackedElsewhere(
+  entries: Record<string, { id: string }>,
+  localName: string,
+): ReadonlySet<string> {
+  return new Set(
+    Object.entries(entries)
+      .filter(([name]) => name !== localName)
+      .map(([, entry]) => entry.id),
+  );
+}

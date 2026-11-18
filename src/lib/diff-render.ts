@@ -292,6 +292,11 @@ const DEPLOYMENT_CREATE_FIELD_ORDER = [
   'metadata',
 ] as const;
 
+/** Suffix for actions that reuse a same-named remote resource not tracked in state. */
+function adoptNote(a: { adopted?: true }): string {
+  return a.adopted ? ' (matched by name on remote \u2014 adopting into state)' : '';
+}
+
 export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void {
   setDisplayIdMap({
     agents: opts.agentIdToName ?? new Map(),
@@ -427,7 +432,7 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})`,
+            `  [~] update memory_store ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
           ) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
@@ -457,6 +462,14 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         memArchives++;
         break;
       case 'memstore_noop':
+        if (a.adopted) {
+          process.stdout.write(
+            colorize(
+              'dim',
+              `  [=] adopt memory_store ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
+            ) + '\n',
+          );
+        }
         memNoops++;
         break;
       case 'env_create': {
@@ -478,7 +491,7 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update environment ${JSON.stringify(a.localName)} (id=${a.id})`,
+            `  [~] update environment ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
           ) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
@@ -505,6 +518,14 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         envArchives++;
         break;
       case 'env_noop':
+        if (a.adopted) {
+          process.stdout.write(
+            colorize(
+              'dim',
+              `  [=] adopt environment ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
+            ) + '\n',
+          );
+        }
         envNoops++;
         break;
       case 'vault_create': {
@@ -539,6 +560,14 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         vaultArchives++;
         break;
       case 'vault_noop':
+        if (a.adopted) {
+          process.stdout.write(
+            colorize(
+              'dim',
+              `  [=] adopt vault ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
+            ) + '\n',
+          );
+        }
         vaultNoops++;
         break;
       case 'deploy_create': {
@@ -560,7 +589,7 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         process.stdout.write(
           colorize(
             'yellow',
-            `  [~] update deployment ${JSON.stringify(a.localName)} (id=${a.id})`,
+            `  [~] update deployment ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
           ) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.dirPath)}\n`,
@@ -587,6 +616,14 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
         deployArchives++;
         break;
       case 'deploy_noop':
+        if (a.adopted) {
+          process.stdout.write(
+            colorize(
+              'dim',
+              `  [=] adopt deployment ${JSON.stringify(a.localName)} (id=${a.id})${adoptNote(a)}`,
+            ) + '\n',
+          );
+        }
         deployNoops++;
         break;
     }

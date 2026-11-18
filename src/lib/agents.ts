@@ -6,6 +6,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { AGENTS_DIR } from './config.js';
 import { normalizeFieldPair } from './normalize.js';
+import { requireUnique, type RemoteLookup } from './remote-lookup.js';
 import { rewriteAgentRefsToNameForm, rewriteSkillRefsToNameForm } from './resolve.js';
 import { anthropic, isSDKNotFound } from './sdk.js';
 import type { AgentConfig, FieldDiff, RemoteAgent, State } from './types.js';
@@ -216,11 +217,15 @@ export async function findAgentByName(name: string): Promise<RemoteAgent | null>
   return agents.find((a) => a.name === name && !a.archived_at) ?? null;
 }
 
-export async function resolveRemote(name: string, state: State): Promise<RemoteAgent | null> {
+export async function resolveRemote(
+  name: string,
+  state: State,
+  lookup: RemoteLookup,
+): Promise<RemoteAgent | null> {
   const tracked = state.agents[name];
   if (tracked) {
     const byId = await retrieveAgent(tracked.id);
     if (byId && !byId.archived_at) return byId;
   }
-  return findAgentByName(name);
+  return requireUnique('agent', name, await lookup.agentByName(name));
 }
