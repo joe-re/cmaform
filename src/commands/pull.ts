@@ -35,7 +35,7 @@ export async function cmdPull(query: string, opts: PullOptions = {}): Promise<nu
     return cmdPullVault(query);
   }
   if (query.startsWith('deploy_') || query.startsWith('deployment_')) {
-    return cmdPullDeployment(query);
+    return cmdPullDeployment(query, opts.byId ?? false);
   }
   if (!query.startsWith('agent_')) {
     process.stderr.write(
@@ -197,9 +197,10 @@ async function cmdPullVault(vaultId: string): Promise<number> {
  * Import a remote deployment (by deploy_id), generating
  * `deployments/<localName>/manifest.yaml` and registering it in state. The
  * agent / environment / vault references are written back in their local-name
- * form wherever the id is tracked in state; otherwise raw ids are kept.
+ * form wherever the id is tracked in state (and `byId` is off); otherwise raw
+ * ids are kept.
  */
-async function cmdPullDeployment(deploymentId: string): Promise<number> {
+async function cmdPullDeployment(deploymentId: string, byId: boolean): Promise<number> {
   const remote = await retrieveDeployment(deploymentId);
   if (!remote) {
     process.stderr.write(formatErrorHeadline(`deployment not found: ${deploymentId}`) + '\n');
@@ -220,7 +221,11 @@ async function cmdPullDeployment(deploymentId: string): Promise<number> {
   // Register before writing so name-based ref rewriting can see this entry.
   state.deployments[localName] = { id: remote.id, name: remote.name };
 
-  const manifestPath = await writeDeploymentManifestFromRemote(remote, localName, state);
+  const manifestPath = await writeDeploymentManifestFromRemote(
+    remote,
+    localName,
+    byId ? null : state,
+  );
   process.stderr.write(`==> wrote ${path.relative(CMAFORM_DIR, manifestPath)} (id=${remote.id})\n`);
 
   await saveState(state);
