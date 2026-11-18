@@ -87,6 +87,8 @@ export async function cmdApply(
   const skillIdToName = new Map<string, string>();
   for (const [localName, e] of Object.entries(state.skills)) skillIdToName.set(e.id, localName);
   printPlan(actions, { ...opts, agentIdToName, skillIdToName });
+  // Before the prompt, so the ambiguity is seen before anything is approved.
+  process.stdout.write(planned.ambiguityWarnings);
 
   if (!hasChanges(actions)) {
     // No remote operations, but refresh stale state with noop id/version values.

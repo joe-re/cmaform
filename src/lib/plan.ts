@@ -4,6 +4,7 @@ import { environmentFieldDiffs, retrieveEnvironment } from './environments.js';
 import { memoryStoreFieldDiffs, retrieveMemoryStore } from './memory-stores.js';
 import type { ResolvedConfig, ResolvedDeploymentConfig } from './resolve.js';
 import {
+  AmbiguousRemoteNameError,
   createRemoteLookup,
   idsTrackedElsewhere,
   requireUnique,
@@ -213,6 +214,19 @@ export type Action =
       id: string;
     };
 
+/**
+ * A local resource whose remote counterpart could not be picked because
+ * several active remote resources carry its name. It produces no action.
+ */
+export interface PlanAmbiguity {
+  kind: ResourceKind;
+  /** Local name, the one targets use (agent name / manifest directory name). */
+  name: string;
+  error: AmbiguousRemoteNameError;
+}
+
+const AMBIGUOUS = Symbol('ambiguous');
+
 export async function computePlan(
   state: State,
   configs: Map<string, { config: AgentConfig; filePath: string }>,
@@ -223,10 +237,31 @@ export async function computePlan(
   deployments: Map<string, { config: DeploymentConfig; dirPath: string }>,
   resolutions: Map<string, ResolvedConfig>,
   deploymentResolutions: Map<string, ResolvedDeploymentConfig>,
-  opts: { targets?: string[]; lookup?: RemoteLookup } = {},
+  opts: {
+    targets?: string[];
+    lookup?: RemoteLookup;
+    /**
+     * When given, an ambiguous remote name is pushed here and the resource gets
+     * no action. Without it, `AmbiguousRemoteNameError` is thrown.
+     */
+    ambiguities?: PlanAmbiguity[];
+  } = {},
 ): Promise<Action[]> {
   const lookup = opts.lookup ?? createRemoteLookup();
   const actions: Action[] = [];
+  const settle = async <T>(
+    kind: ResourceKind,
+    name: string,
+    find: () => Promise<T>,
+  ): Promise<T | typeof AMBIGUOUS> => {
+    try {
+      return await find();
+    } catch (err) {
+      if (!opts.ambiguities || !(err instanceof AmbiguousRemoteNameError)) throw err;
+      opts.ambiguities.push({ kind, name, error: err });
+      return AMBIGUOUS;
+    }
+  };
   const dynamicLatestScope = agentNamesSelectedByTargets(configs, opts.targets ?? []);
   const pendingAgentActions: Array<{
     name: string;
@@ -248,7 +283,8 @@ export async function computePlan(
     const forwardSkillDeps = resolution?.forwardSkillDeps ?? [];
     const latestAgentVersionRefs = resolution?.latestAgentVersionRefs ?? [];
 
-    const remote = await resolveRemote(name, state, lookup);
+    const remote = await settle('agent', name, () => resolveRemote(name, state, lookup));
+    if (remote === AMBIGUOUS) continue;
     pendingAgentActions.push({
       name,
       filePath,
@@ -339,13 +375,16 @@ export async function computePlan(
     const tracked = state.skills[localName];
     if (!tracked) {
       // Not tracked in state, but if a remote skill with the same display_title exists, treat as update.
-      const remote = requireUnique(
-        'skill',
-        skill.displayTitle,
-        await lookup.skillByDisplayTitle(skill.displayTitle, {
-          excludeIds: idsTrackedElsewhere(state.skills, localName),
-        }),
+      const remote = await settle('skill', localName, async () =>
+        requireUnique(
+          'skill',
+          skill.displayTitle,
+          await lookup.skillByDisplayTitle(skill.displayTitle, {
+            excludeIds: idsTrackedElsewhere(state.skills, localName),
+          }),
+        ),
       );
+      if (remote === AMBIGUOUS) continue;
       if (remote) {
         actions.push({
           type: 'skill_update',
@@ -390,14 +429,18 @@ export async function computePlan(
   // ----- memory stores -----
   for (const [localName, { config, dirPath }] of memoryStores) {
     const tracked = state.memory_stores[localName];
-    const { remote, adopted } = await findExisting({
-      kind: 'memory_store',
-      name: config.name,
-      tracked,
-      retrieve: retrieveMemoryStore,
-      byName: (excludeIds) => lookup.memoryStoreByName(config.name, { excludeIds }),
-      excludeIds: idsTrackedElsewhere(state.memory_stores, localName),
-    });
+    const found = await settle('memory_store', localName, () =>
+      findExisting({
+        kind: 'memory_store',
+        name: config.name,
+        tracked,
+        retrieve: retrieveMemoryStore,
+        byName: (excludeIds) => lookup.memoryStoreByName(config.name, { excludeIds }),
+        excludeIds: idsTrackedElsewhere(state.memory_stores, localName),
+      }),
+    );
+    if (found === AMBIGUOUS) continue;
+    const { remote, adopted } = found;
     if (!remote) {
       actions.push({ type: 'memstore_create', localName, config, dirPath });
       continue;
@@ -433,14 +476,18 @@ export async function computePlan(
   // ----- environments -----
   for (const [localName, { config, dirPath }] of environments) {
     const tracked = state.environments[localName];
-    const { remote, adopted } = await findExisting({
-      kind: 'environment',
-      name: config.name,
-      tracked,
-      retrieve: retrieveEnvironment,
-      byName: (excludeIds) => lookup.environmentByName(config.name, { excludeIds }),
-      excludeIds: idsTrackedElsewhere(state.environments, localName),
-    });
+    const found = await settle('environment', localName, () =>
+      findExisting({
+        kind: 'environment',
+        name: config.name,
+        tracked,
+        retrieve: retrieveEnvironment,
+        byName: (excludeIds) => lookup.environmentByName(config.name, { excludeIds }),
+        excludeIds: idsTrackedElsewhere(state.environments, localName),
+      }),
+    );
+    if (found === AMBIGUOUS) continue;
+    const { remote, adopted } = found;
     if (!remote) {
       actions.push({ type: 'env_create', localName, config, dirPath });
       continue;
@@ -481,14 +528,19 @@ export async function computePlan(
   // settles. Credentials are not managed by cmaform yet.
   for (const [localName, vault] of vaults) {
     const tracked = state.vaults[localName];
-    const { remote, adopted } = await findExisting({
-      kind: 'vault',
-      name: vault.config.display_name,
-      tracked,
-      retrieve: retrieveVault,
-      byName: (excludeIds) => lookup.vaultByDisplayName(vault.config.display_name, { excludeIds }),
-      excludeIds: idsTrackedElsewhere(state.vaults, localName),
-    });
+    const found = await settle('vault', localName, () =>
+      findExisting({
+        kind: 'vault',
+        name: vault.config.display_name,
+        tracked,
+        retrieve: retrieveVault,
+        byName: (excludeIds) =>
+          lookup.vaultByDisplayName(vault.config.display_name, { excludeIds }),
+        excludeIds: idsTrackedElsewhere(state.vaults, localName),
+      }),
+    );
+    if (found === AMBIGUOUS) continue;
+    const { remote, adopted } = found;
 
     if (!remote) {
       actions.push({
@@ -525,14 +577,18 @@ export async function computePlan(
       forwardMemoryStoreDeps: resolution.forwardMemoryStoreDeps,
     };
     const tracked = state.deployments[localName];
-    const { remote, adopted } = await findExisting({
-      kind: 'deployment',
-      name: config.name,
-      tracked,
-      retrieve: retrieveDeployment,
-      byName: (excludeIds) => lookup.deploymentByName(config.name, { excludeIds }),
-      excludeIds: idsTrackedElsewhere(state.deployments, localName),
-    });
+    const found = await settle('deployment', localName, () =>
+      findExisting({
+        kind: 'deployment',
+        name: config.name,
+        tracked,
+        retrieve: retrieveDeployment,
+        byName: (excludeIds) => lookup.deploymentByName(config.name, { excludeIds }),
+        excludeIds: idsTrackedElsewhere(state.deployments, localName),
+      }),
+    );
+    if (found === AMBIGUOUS) continue;
+    const { remote, adopted } = found;
     if (!remote) {
       actions.push({ type: 'deploy_create', localName, config, dirPath, ...forwardDeps });
       continue;
@@ -643,7 +699,7 @@ function markLatestAgentVersions(
 
 // ---------------- target filtering ----------------
 
-type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault' | 'deployment';
+export type ResourceKind = RemoteResourceKind;
 
 export function actionResourceName(a: Action): string {
   if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
@@ -661,7 +717,7 @@ export function actionResourceKind(a: Action): ResourceKind {
   return 'agent';
 }
 
-const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
+export const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
   agent: 'agent',
   agents: 'agent',
   skill: 'skill',
@@ -722,18 +778,27 @@ function parseTargets(targets: string[]): ParsedTargets {
   return { kinds, names, qualified };
 }
 
-export function filterActionsByTargets(
+/** A resource named by kind and local name, whether or not it has an action. */
+export interface ResourceRef {
+  kind: ResourceKind;
+  name: string;
+}
+
+/**
+ * Narrow `actions` to the ones the targets select. `extra` are resources that
+ * have no action (ambiguous ones): they count as found for `unmatched` and the
+ * ones the targets select are returned as `selectedExtra`.
+ */
+export function filterActionsByTargets<E extends ResourceRef = ResourceRef>(
   actions: Action[],
   targets: string[],
-): { filtered: Action[]; unmatched: string[] } {
+  extra: E[] = [],
+): { filtered: Action[]; unmatched: string[]; selectedExtra: E[] } {
   const { kinds, names, qualified } = parseTargets(targets);
 
   const matchedNames = new Set<string>();
   const matchedQualified = new Set<string>();
-  const filtered: Action[] = [];
-  for (const a of actions) {
-    const kind = actionResourceKind(a);
-    const name = actionResourceName(a);
+  const isSelected = (kind: ResourceKind, name: string): boolean => {
     let selected = kinds.has(kind);
     if (names.has(name)) {
       matchedNames.add(name);
@@ -745,14 +810,17 @@ export function filterActionsByTargets(
         selected = true;
       }
     }
-    if (selected) filtered.push(a);
-  }
+    return selected;
+  };
+
+  const filtered = actions.filter((a) => isSelected(actionResourceKind(a), actionResourceName(a)));
+  const selectedExtra = extra.filter((r) => isSelected(r.kind, r.name));
 
   const unmatched = [
     ...[...names].filter((n) => !matchedNames.has(n)),
     ...qualified.filter((q) => !matchedQualified.has(q.raw)).map((q) => q.raw),
   ];
-  return { filtered, unmatched };
+  return { filtered, unmatched, selectedExtra };
 }
 
 export function hasChanges(actions: Action[]): boolean {

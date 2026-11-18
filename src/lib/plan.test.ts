@@ -31,7 +31,14 @@ import { retrieveEnvironment } from './environments.js';
 import { retrieveMemoryStore } from './memory-stores.js';
 import { AmbiguousRemoteNameError, type NameLookup, type RemoteLookup } from './remote-lookup.js';
 import { retrieveVault } from './vaults.js';
-import { actionKey, computePlan, filterActionsByTargets, hasChanges, type Action } from './plan.js';
+import {
+  actionKey,
+  computePlan,
+  filterActionsByTargets,
+  hasChanges,
+  type Action,
+  type PlanAmbiguity,
+} from './plan.js';
 import {
   UNKNOWN_SKILL_HASH,
   type AgentConfig,
@@ -91,7 +98,7 @@ describe('filterActionsByTargets', () => {
   });
 
   it('filters by local resource name and reports unmatched names', () => {
-    expect(filterActionsByTargets(actions, ['agent-a', 'missing'])).toEqual({
+    expect(filterActionsByTargets(actions, ['agent-a', 'missing'])).toMatchObject({
       filtered: [noop],
       unmatched: ['missing'],
     });
@@ -179,6 +186,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
         [
@@ -191,6 +199,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [{ name: 'spec-qa', id: 'agent_child' }],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
       ]),
@@ -280,6 +289,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
         [
@@ -297,6 +307,7 @@ describe('computePlan', () => {
               },
             ],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
       ]),
@@ -381,6 +392,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
         [
@@ -393,6 +405,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [{ name: 'spec-qa', id: 'agent_child' }],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
       ]),
@@ -482,6 +495,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
         [
@@ -494,6 +508,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [{ name: 'a', id: 'agent_a' }],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
         [
@@ -506,6 +521,7 @@ describe('computePlan', () => {
             missingSkillRefs: [],
             latestAgentVersionRefs: [{ name: 'b', id: 'agent_b' }],
             idMismatches: [],
+            ambiguousRefs: [],
           },
         ],
       ]),
@@ -587,6 +603,7 @@ describe('computePlan — adopting same-named remote resources', () => {
       vaults?: Map<string, { config: { display_name: string }; dirPath: string }>;
       deployments?: Map<string, { config: never; dirPath: string }>;
       deploymentResolutions?: Map<string, never>;
+      ambiguities?: PlanAmbiguity[];
     } = {},
   ) {
     return computePlan(
@@ -599,7 +616,7 @@ describe('computePlan — adopting same-named remote resources', () => {
       (local.deployments ?? new Map()) as never,
       new Map(),
       (local.deploymentResolutions ?? new Map()) as never,
-      { lookup },
+      { lookup, ambiguities: local.ambiguities },
     );
   }
 
@@ -695,6 +712,169 @@ describe('computePlan — adopting same-named remote resources', () => {
     ).rejects.toBeInstanceOf(AmbiguousRemoteNameError);
   });
 
+  it('records an ambiguous memory store instead of throwing and plans no action for it', async () => {
+    const ambiguities: PlanAmbiguity[] = [];
+    const actions = await plan(
+      emptyState(),
+      makeLookup({
+        memoryStores: [
+          { id: 'ms_1', name: 'Memory A' },
+          { id: 'ms_2', name: 'Memory A' },
+        ],
+        vaults: [{ id: 'vlt_1', display_name: 'Bot Vault' }],
+      }),
+      {
+        memoryStores: memLocal(),
+        vaults: new Map([
+          ['bot', { config: { display_name: 'Bot Vault' }, dirPath: 'vaults/bot' }],
+        ]),
+        ambiguities,
+      },
+    );
+    expect(actions.map((a) => a.type)).toEqual(['vault_noop']);
+    expect(ambiguities).toHaveLength(1);
+    expect(ambiguities[0]).toMatchObject({ kind: 'memory_store', name: 'mem-a' });
+    expect(ambiguities[0].error).toBeInstanceOf(AmbiguousRemoteNameError);
+    expect(ambiguities[0].error.candidates.map((c) => c.id)).toEqual(['ms_1', 'ms_2']);
+  });
+
+  it.each([
+    ['environment', 'environments'],
+    ['vault', 'vaults'],
+    ['deployment', 'deployments'],
+  ] as const)('records an ambiguous %s and plans no action for it', async (kind, key) => {
+    const dup = {
+      environment: [
+        { id: 'e_1', name: 'X' },
+        { id: 'e_2', name: 'X' },
+      ],
+      vault: [
+        { id: 'v_1', display_name: 'X' },
+        { id: 'v_2', display_name: 'X' },
+      ],
+      deployment: [
+        { id: 'd_1', name: 'X' },
+        { id: 'd_2', name: 'X' },
+      ],
+    }[kind];
+    const resolution = {
+      config: { name: 'X', agent: { id: 'agent_1' }, environment_id: 'env_1', initial_events: [] },
+      forwardAgentDeps: [],
+      forwardEnvDeps: [],
+      forwardVaultDeps: [],
+      forwardMemoryStoreDeps: [],
+    };
+    const ambiguities: PlanAmbiguity[] = [];
+    const actions = await plan(emptyState(), makeLookup({ [key]: dup }), {
+      environments:
+        kind === 'environment'
+          ? new Map([['x', { config: { name: 'X' } as never, dirPath: 'environments/x' }]])
+          : undefined,
+      vaults:
+        kind === 'vault'
+          ? new Map([['x', { config: { display_name: 'X' }, dirPath: 'vaults/x' }]])
+          : undefined,
+      deployments:
+        kind === 'deployment'
+          ? new Map([['x', { config: {} as never, dirPath: 'deployments/x' }]])
+          : undefined,
+      deploymentResolutions: new Map([['x', resolution as never]]),
+      ambiguities,
+    });
+    expect(actions).toEqual([]);
+    expect(ambiguities).toMatchObject([{ kind, name: 'x' }]);
+  });
+
+  it('records an ambiguous untracked skill and keeps planning the others', async () => {
+    const skill = (n: string) => ({
+      localName: n,
+      dirPath: `skills/${n}`,
+      skillName: n,
+      description: '',
+      displayTitle: n,
+      hash: 'h',
+      files: ['SKILL.md'],
+    });
+    const lookup = {
+      ...makeLookup(),
+      skillByDisplayTitle: async (name: string): Promise<NameLookup<never>> =>
+        name === 'dup'
+          ? ({
+              kind: 'ambiguous',
+              candidates: [{ id: 's_1' }, { id: 's_2' }],
+            } as unknown as NameLookup<never>)
+          : { kind: 'none' },
+    };
+    const ambiguities: PlanAmbiguity[] = [];
+    const actions = await computePlan(
+      emptyState(),
+      new Map(),
+      new Map([
+        ['dup', skill('dup')],
+        ['solo', skill('solo')],
+      ]),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      { lookup, ambiguities },
+    );
+    expect(actions.map((a) => a.type)).toEqual(['skill_create']);
+    expect(ambiguities).toMatchObject([{ kind: 'skill', name: 'dup' }]);
+  });
+
+  it('records an ambiguous agent and keeps planning the others', async () => {
+    const err = new AmbiguousRemoteNameError('agent', 'dup', [{ id: 'a_1' }, { id: 'a_2' }]);
+    vi.mocked(resolveRemote).mockImplementation(async (name) => {
+      if (name === 'dup') throw err;
+      return null;
+    });
+    const ambiguities: PlanAmbiguity[] = [];
+    const config = (name: string) => ({
+      config: { name } as AgentConfig,
+      filePath: `${name}.yaml`,
+    });
+    const actions = await computePlan(
+      emptyState(),
+      new Map([
+        ['dup', config('dup')],
+        ['solo', config('solo')],
+      ]),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      { lookup: makeLookup(), ambiguities },
+    );
+    expect(actions.map((a) => actionKey(a))).toEqual(['agent:solo']);
+    expect(ambiguities).toEqual([{ kind: 'agent', name: 'dup', error: err }]);
+  });
+
+  it('still throws for an ambiguous agent when no sink is given', async () => {
+    vi.mocked(resolveRemote).mockRejectedValue(
+      new AmbiguousRemoteNameError('agent', 'dup', [{ id: 'a_1' }, { id: 'a_2' }]),
+    );
+    await expect(
+      computePlan(
+        emptyState(),
+        new Map([['dup', { config: { name: 'dup' } as AgentConfig, filePath: 'dup.yaml' }]]),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        { lookup: makeLookup() },
+      ),
+    ).rejects.toBeInstanceOf(AmbiguousRemoteNameError);
+  });
+
   it('adopts an untracked vault as a noop', async () => {
     const actions = await plan(
       emptyState(),
@@ -742,6 +922,7 @@ describe('computePlan — adopting same-named remote resources', () => {
       forwardMemoryStoreDeps: ['notes'],
       missingRefs: [],
       idMismatches: [],
+      ambiguousRefs: [],
     };
     const actions = await plan(emptyState(), makeLookup(), {
       deployments: new Map([['nightly', { config: {} as never, dirPath: 'deployments/nightly' }]]),
@@ -776,6 +957,7 @@ describe('computePlan — adopting same-named remote resources', () => {
       forwardMemoryStoreDeps: [],
       missingRefs: [],
       idMismatches: [],
+      ambiguousRefs: [],
     };
     const actions = await plan(emptyState(), makeLookup({ deployments: [remote] }), {
       deployments: new Map([['nightly-dir', { config: {} as never, dirPath: 'deployments/n' }]]),
@@ -851,7 +1033,7 @@ describe('filterActionsByTargets — kind-qualified targets', () => {
   const actions = [agent, store, deployment, other];
 
   it('keeps only the resource of the qualified kind', () => {
-    expect(filterActionsByTargets(actions, ['deployment:shared'])).toEqual({
+    expect(filterActionsByTargets(actions, ['deployment:shared'])).toMatchObject({
       filtered: [deployment],
       unmatched: [],
     });
@@ -875,7 +1057,7 @@ describe('filterActionsByTargets — kind-qualified targets', () => {
 
   it('treats a string with a non-alias prefix as a bare name', () => {
     const colonAgent: Action = { type: 'noop', name: 'team:ops', id: 'agent_3', version: 1 };
-    expect(filterActionsByTargets([colonAgent, other], ['team:ops'])).toEqual({
+    expect(filterActionsByTargets([colonAgent, other], ['team:ops'])).toMatchObject({
       filtered: [colonAgent],
       unmatched: [],
     });
@@ -884,7 +1066,7 @@ describe('filterActionsByTargets — kind-qualified targets', () => {
   it('reports qualified targets that match nothing, as typed', () => {
     expect(
       filterActionsByTargets(actions, ['vault:shared', 'agent:', 'deployment:shared']),
-    ).toEqual({ filtered: [deployment], unmatched: ['vault:shared', 'agent:'] });
+    ).toMatchObject({ filtered: [deployment], unmatched: ['vault:shared', 'agent:'] });
   });
 
   it('combines qualified targets with kinds and bare names', () => {
@@ -904,5 +1086,39 @@ describe('actionKey', () => {
     expect(actionKey({ type: 'deploy_noop', localName: 'd', id: 'x', name: 'D' })).toBe(
       'deployment:d',
     );
+  });
+});
+
+describe('filterActionsByTargets — resources without an action', () => {
+  const other: Action = { type: 'noop', name: 'other', id: 'agent_2', version: 1 };
+  const notes = { kind: 'memory_store', name: 'notes' } as const;
+
+  it.each([
+    ['a kind', 'memstores'],
+    ['a bare name', 'notes'],
+    ['a qualified name', 'memory_store:notes'],
+    ['a qualified name with an alias', 'memstore:notes'],
+  ])('selects an ambiguous resource named by %s', (_label, target) => {
+    const r = filterActionsByTargets([other], [target], [notes]);
+    expect(r.selectedExtra).toEqual([notes]);
+    expect(r.unmatched).toEqual([]);
+  });
+
+  it('does not select it for unrelated targets', () => {
+    for (const target of ['skills', 'other', 'agent:notes', 'vault:notes']) {
+      const r = filterActionsByTargets([other], [target], [notes]);
+      expect(r.selectedExtra).toEqual([]);
+    }
+  });
+
+  it('keeps the actions result independent of the extra resources', () => {
+    const r = filterActionsByTargets([other], ['other'], [notes]);
+    expect(r.filtered).toEqual([other]);
+  });
+
+  it('still reports a qualified target of the wrong kind as unmatched', () => {
+    expect(filterActionsByTargets([other], ['vault:notes'], [notes]).unmatched).toEqual([
+      'vault:notes',
+    ]);
   });
 });

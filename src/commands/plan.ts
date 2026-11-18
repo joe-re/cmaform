@@ -28,6 +28,7 @@ export async function cmdPlan(
     agentIdToName: buildIdToNameMap(state.agents),
     skillIdToName: buildIdToNameMap(state.skills),
   });
+  process.stdout.write(planned.ambiguityWarnings);
   return 0;
 }
 

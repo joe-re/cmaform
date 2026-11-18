@@ -3,8 +3,15 @@ import { formatErrorDetail, formatErrorHeadline } from '../lib/ansi.js';
 import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import { computePlan, filterActionsByTargets, type Action } from '../lib/plan.js';
-import { createRemoteLookup } from '../lib/remote-lookup.js';
+import {
+  actionKey,
+  computePlan,
+  filterActionsByTargets,
+  type Action,
+  type PlanAmbiguity,
+  type ResourceRef,
+} from '../lib/plan.js';
+import { createRemoteLookup, type AmbiguousRemoteNameError } from '../lib/remote-lookup.js';
 import {
   buildResolutionContext,
   resolveAgentConfig,
@@ -15,7 +22,13 @@ import {
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import type { State } from '../lib/types.js';
 import { loadAllVaultConfigs } from '../lib/vaults.js';
-import { reportAmbiguousRemoteName } from './ambiguous-remote.js';
+import {
+  describeAmbiguousName,
+  formatAmbiguityWarnings,
+  reportAmbiguousRemoteName,
+  reportAmbiguousRemoteNames,
+  type FatalAmbiguity,
+} from './ambiguous-remote.js';
 
 export type PlanPipelineResult =
   | { ok: false; exitCode: number }
@@ -24,7 +37,18 @@ export type PlanPipelineResult =
       /** Actions selected by the targets (all actions when there are none). */
       actions: Action[];
       resolutions: Map<string, ResolvedConfig>;
+      /**
+       * Ambiguous remote names the targets do not touch, formatted for stdout.
+       * Print it after the plan; empty when there are none.
+       */
+      ambiguityWarnings: string;
     };
+
+/** A name-based reference that matches several remote resources, with its source. */
+interface AmbiguousReference {
+  referrer: ResourceRef;
+  error: AmbiguousRemoteNameError;
+}
 
 /**
  * The steps `plan` and `apply` share: load every local manifest, resolve
@@ -52,6 +76,8 @@ export async function runPlanPipeline(
   let allActions: Action[];
   const resolutions = new Map<string, ResolvedConfig>();
   const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
+  const ambiguities: PlanAmbiguity[] = [];
+  const ambiguousRefs: AmbiguousReference[] = [];
   try {
     const ctx = buildResolutionContext({
       state,
@@ -70,12 +96,18 @@ export async function runPlanPipeline(
       for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
       for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
       for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
+      for (const error of r.ambiguousRefs) {
+        ambiguousRefs.push({ referrer: { kind: 'agent', name }, error });
+      }
     }
     for (const [localName, { config }] of deployments) {
       const r = await resolveDeploymentConfig(config, ctx);
       deploymentResolutions.set(localName, r);
       for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
       for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
+      for (const error of r.ambiguousRefs) {
+        ambiguousRefs.push({ referrer: { kind: 'deployment', name: localName }, error });
+      }
     }
     if (missing.length > 0) {
       process.stderr.write(
@@ -110,7 +142,7 @@ export async function runPlanPipeline(
       deployments,
       resolutions,
       deploymentResolutions,
-      { targets, lookup },
+      { targets, lookup, ambiguities },
     );
   } catch (err) {
     reportAmbiguousRemoteName(err);
@@ -118,19 +150,80 @@ export async function runPlanPipeline(
   }
 
   let actions = allActions;
+  let selectedAmbiguities: PlanAmbiguity[] = ambiguities;
+  let failed = false;
   if (targets.length > 0) {
-    const { filtered, unmatched } = filterActionsByTargets(allActions, targets);
+    const { filtered, unmatched, selectedExtra } = filterActionsByTargets(
+      allActions,
+      targets,
+      ambiguities,
+    );
     if (unmatched.length > 0) {
       process.stderr.write(
         formatErrorHeadline(
           `the following resource names were not found in local YAML, state, or remote: ${unmatched.map((t) => JSON.stringify(t)).join(', ')}`,
         ) + '\n',
       );
-      return { ok: false, exitCode: 2 };
+      failed = true;
     }
     actions = filtered;
-    process.stdout.write(`(filter: ${targets.map((t) => JSON.stringify(t)).join(', ')})\n`);
+    selectedAmbiguities = selectedExtra;
+    if (!failed) {
+      process.stdout.write(`(filter: ${targets.map((t) => JSON.stringify(t)).join(', ')})\n`);
+    }
   }
 
-  return { ok: true, actions, resolutions };
+  // A reference only matters when the action that holds it is going to run.
+  // Out-of-target actions are dropped, so their placeholder never reaches the API.
+  const selectedKeys = new Set(actions.map(actionKey));
+  const referrerSelected = (r: ResourceRef): boolean =>
+    targets.length === 0 || selectedKeys.has(`${r.kind}:${r.name}`);
+  const fatalRefs = ambiguousRefs.filter((r) => referrerSelected(r.referrer));
+  const ignoredRefs = ambiguousRefs.filter((r) => !referrerSelected(r.referrer));
+  const ignoredAmbiguities =
+    targets.length === 0 ? [] : ambiguities.filter((a) => !selectedAmbiguities.includes(a));
+
+  const fatal = collectFatalAmbiguities(selectedAmbiguities, fatalRefs);
+  if (fatal.length > 0) {
+    reportAmbiguousRemoteNames(fatal);
+    failed = true;
+  }
+  if (failed) return { ok: false, exitCode: 2 };
+
+  const warnings = [
+    ...ignoredAmbiguities.map(
+      (a) =>
+        `skipped ${a.kind} ${JSON.stringify(a.name)} (not in the target set): ${describeAmbiguousName(a.error)}`,
+    ),
+    ...ignoredRefs.map(
+      (r) =>
+        `${r.referrer.kind} ${JSON.stringify(r.referrer.name)} (not in the target set) references ${r.error.resourceKind} ${JSON.stringify(r.error.resourceName)}: ${describeAmbiguousName(r.error)}`,
+    ),
+  ];
+  const text = formatAmbiguityWarnings(warnings);
+  return { ok: true, actions, resolutions, ambiguityWarnings: text ? '\n' + text : '' };
+}
+
+/** Group by remote name so a name referenced by several resources is listed once. */
+function collectFatalAmbiguities(
+  own: PlanAmbiguity[],
+  refs: AmbiguousReference[],
+): FatalAmbiguity[] {
+  const byName = new Map<string, FatalAmbiguity>();
+  const entry = (error: AmbiguousRemoteNameError): FatalAmbiguity => {
+    const key = `${error.resourceKind}:${error.resourceName}`;
+    let e = byName.get(key);
+    if (!e) {
+      e = { error, referencedBy: [] };
+      byName.set(key, e);
+    }
+    return e;
+  };
+  for (const a of own) entry(a.error);
+  for (const r of refs) {
+    const label = `${r.referrer.kind} ${JSON.stringify(r.referrer.name)}`;
+    const e = entry(r.error);
+    if (!e.referencedBy.includes(label)) e.referencedBy.push(label);
+  }
+  return [...byName.values()];
 }

@@ -13,6 +13,7 @@ function resolved(config: ResolvedConfig['config']): ResolvedConfig {
     missingSkillRefs: [],
     latestAgentVersionRefs: [],
     idMismatches: [],
+    ambiguousRefs: [],
   };
 }
 
