@@ -38,10 +38,15 @@ export interface RemoteAgent {
   metadata?: Record<string, unknown>;
 }
 
+/** Marker for a skill whose remote content is unknown (the API does not return skill content). */
+export const UNKNOWN_SKILL_HASH = '';
+
 export interface SkillStateEntry {
   id: string;
   version: string; // epoch timestamp string
-  hash: string; // SHA256 hash of all local files in the skill directory
+  // SHA256 hash of the skill directory as last uploaded.
+  // Empty string (UNKNOWN_SKILL_HASH) = remote content is unknown; the next plan always updates.
+  hash: string;
   display_title: string;
 }
 

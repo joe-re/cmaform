@@ -17,6 +17,7 @@ import {
   retrieveMemoryStore,
   writeMemoryStoreManifestFromRemote,
 } from '../lib/memory-stores.js';
+import { UNKNOWN_SKILL_HASH } from '../lib/types.js';
 import { loadAllVaultConfigs, retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
 import {
   createRemoteLookup,
@@ -194,7 +195,7 @@ export async function cmdSync(opts: SyncOptions = {}): Promise<number> {
       state.skills[localName] = {
         id: remote.id,
         version: remote.latest_version,
-        hash: skill.hash,
+        hash: UNKNOWN_SKILL_HASH,
         display_title: remote.display_title,
       };
       process.stdout.write(

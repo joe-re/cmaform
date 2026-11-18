@@ -13,6 +13,7 @@ import {
 } from '../lib/remote-lookup.js';
 import { retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState, stateFileExists } from '../lib/state.js';
+import { UNKNOWN_SKILL_HASH } from '../lib/types.js';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
@@ -141,7 +142,7 @@ export async function cmdInit(): Promise<number> {
       state.skills[localName] = {
         id: remote.id,
         version: remote.latest_version,
-        hash: skill.hash,
+        hash: UNKNOWN_SKILL_HASH,
         display_title: remote.display_title,
       };
       process.stdout.write(

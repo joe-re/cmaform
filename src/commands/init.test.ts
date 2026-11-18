@@ -38,8 +38,9 @@ vi.mock('../lib/deployments.js', () => ({
 
 import { loadAllEnvironmentConfigs, listEnvironments } from '../lib/environments.js';
 import { listMemoryStores, loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
+import { listSkills, loadAllSkillConfigs } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
-import type { State } from '../lib/types.js';
+import { UNKNOWN_SKILL_HASH, type State } from '../lib/types.js';
 import { cmdInit } from './init.js';
 
 describe('cmdInit — ambiguous remote names', () => {
@@ -96,5 +97,55 @@ describe('cmdInit — ambiguous remote names', () => {
     const saved = vi.mocked(saveState).mock.calls[0][0];
     expect(saved.memory_stores).toEqual({ solo: { id: 'ms_3', name: 'Solo' } });
     expect(saved.environments).toEqual({ py: { id: 'env_1', name: 'py' } });
+  });
+});
+
+describe('cmdInit — discovered skills', () => {
+  beforeEach(() => {
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.mocked(saveState).mockReset();
+    vi.mocked(loadState).mockResolvedValue({
+      agents: {},
+      skills: {},
+      memory_stores: {},
+      environments: {},
+      vaults: {},
+      deployments: {},
+    });
+    vi.mocked(loadAllMemoryStoreConfigs).mockResolvedValue(new Map());
+    vi.mocked(loadAllEnvironmentConfigs).mockResolvedValue(new Map());
+    vi.mocked(listEnvironments).mockResolvedValue([]);
+    vi.mocked(listMemoryStores).mockResolvedValue([]);
+    vi.mocked(loadAllSkillConfigs).mockResolvedValue(
+      new Map([
+        [
+          'my-skill',
+          {
+            localName: 'my-skill',
+            dirPath: 'skills/my-skill',
+            skillName: 'my-skill',
+            description: '',
+            displayTitle: 'my-skill',
+            hash: 'localhash',
+            files: ['SKILL.md'],
+          },
+        ],
+      ]),
+    );
+    vi.mocked(listSkills).mockResolvedValue([
+      { id: 'skill_1', display_title: 'my-skill', source: 'custom', latest_version: '123' },
+    ]);
+  });
+
+  it('records an unknown hash instead of the local hash', async () => {
+    await cmdInit();
+
+    const saved = vi.mocked(saveState).mock.calls[0][0];
+    expect(saved.skills['my-skill']).toEqual({
+      id: 'skill_1',
+      version: '123',
+      hash: UNKNOWN_SKILL_HASH,
+      display_title: 'my-skill',
+    });
   });
 });

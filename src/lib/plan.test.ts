@@ -32,15 +32,16 @@ import { retrieveMemoryStore } from './memory-stores.js';
 import { AmbiguousRemoteNameError, type NameLookup, type RemoteLookup } from './remote-lookup.js';
 import { retrieveVault } from './vaults.js';
 import { computePlan, filterActionsByTargets, hasChanges, type Action } from './plan.js';
-import type {
-  AgentConfig,
-  RemoteAgent,
-  RemoteDeployment,
-  RemoteEnvironment,
-  RemoteMemoryStore,
-  RemoteVault,
-  ResolvedDeployment,
-  State,
+import {
+  UNKNOWN_SKILL_HASH,
+  type AgentConfig,
+  type RemoteAgent,
+  type RemoteDeployment,
+  type RemoteEnvironment,
+  type RemoteMemoryStore,
+  type RemoteVault,
+  type ResolvedDeployment,
+  type State,
 } from './types.js';
 
 const noop: Action = {
@@ -755,5 +756,56 @@ describe('computePlan — adopting same-named remote resources', () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({ localName: 'nightly-dir', id: 'dep_1', adopted: true });
     expect(actions[0].type).toMatch(/^deploy_(noop|update)$/);
+  });
+});
+
+describe('computePlan — skills with an unknown state hash', () => {
+  const skill = {
+    localName: 'my-skill',
+    dirPath: 'skills/my-skill',
+    skillName: 'my-skill',
+    description: '',
+    displayTitle: 'my-skill',
+    hash: 'abcdef0123456789',
+    files: ['SKILL.md'],
+  };
+
+  function planSkill(trackedHash: string) {
+    const state: State = {
+      agents: {},
+      skills: {
+        'my-skill': { id: 'skill_1', version: '1', hash: trackedHash, display_title: 'my-skill' },
+      },
+      memory_stores: {},
+      environments: {},
+      vaults: {},
+      deployments: {},
+    };
+    return computePlan(
+      state,
+      new Map(),
+      new Map([['my-skill', skill]]),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+  }
+
+  it('plans an update when the recorded hash is unknown', async () => {
+    const actions = await planSkill(UNKNOWN_SKILL_HASH);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({
+      type: 'skill_update',
+      id: 'skill_1',
+      currentHash: UNKNOWN_SKILL_HASH,
+    });
+  });
+
+  it('stays unchanged when the recorded hash matches the local one', async () => {
+    const actions = await planSkill(skill.hash);
+    expect(actions.map((a) => a.type)).toEqual(['skill_noop']);
   });
 });

@@ -6,7 +6,13 @@ import { colorize, colorizeMany } from './ansi.js';
 import { CMAFORM_DIR } from './config.js';
 import type { Action, PlanWarning } from './plan.js';
 import { prettifySentinelsForDisplay } from './resolve.js';
-import type { FieldDiff } from './types.js';
+import { UNKNOWN_SKILL_HASH, type FieldDiff } from './types.js';
+
+function formatCurrentHash(hash: string): string {
+  return hash === UNKNOWN_SKILL_HASH || hash === '(unknown)'
+    ? '(unknown)'
+    : `${hash.slice(0, 12)}...`;
+}
 
 function formatWarningLines(
   warnings: PlanWarning[] | undefined,
@@ -389,7 +395,7 @@ export function printPlan(actions: Action[], opts: PrintPlanOptions = {}): void 
           colorize('yellow', `  [~] update skill  ${JSON.stringify(a.localName)} (id=${a.id})`) +
             '\n' +
             `       dir:  ${path.relative(CMAFORM_DIR, a.skill.dirPath)}\n` +
-            `       hash: ${a.currentHash.slice(0, 12)}... -> ${a.skill.hash.slice(0, 12)}...\n`,
+            `       hash: ${formatCurrentHash(a.currentHash)} -> ${a.skill.hash.slice(0, 12)}...\n`,
         );
         skillUpdates++;
         break;
