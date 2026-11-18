@@ -7,11 +7,37 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- `plan` / `apply` accept kind-qualified targets (`<kind>:<name>`, e.g.
+  `deployment:nightly`) to select one resource when several kinds share a name.
+  Any kind alias works as the qualifier; bare names and bare kinds behave as
+  before (#35).
+
+### Changed
+
+- The first `apply` after a fresh `init` uploads a new version of every
+  discovered skill, because their remote content is unknown (#35).
+- `model.effort` omitted in an agent YAML is no longer managed: the value on
+  remote is ignored (#35).
+
 ### Fixed
 
 - `cmaform init` now creates `cmaform.state.json` in a fresh project even when
   there is nothing to reconcile, so `plan` / `apply` no longer demand an `init`
   that never produces the file (#30).
+- A memory store, environment, vault or deployment with no state entry is
+  adopted from a same-named remote resource instead of being created a second
+  time, and `plan` notes the adoption. A remote id that another state entry
+  already tracks is never adopted (#35).
+- A same-named active remote resource is no longer picked silently when there
+  are several: `plan` / `apply` list the candidates and exit 2, `init` skips
+  that resource and exits 1, and `sync` skips it with a warning (#35).
+- `plan` no longer reports agent changes right after `apply`: server-returned
+  `model.effort`, `tools[].configs[].type` and null config keys are normalized,
+  as are a string-form `model` and an omitted `speed` (#35).
+- Skills discovered by `init` / `sync` / `pull` record an unknown hash, so the
+  next `plan` shows them as an update instead of unchanged (#35).
 
 ## [0.4.0] - 2026-06-16
 

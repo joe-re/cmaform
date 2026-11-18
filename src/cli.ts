@@ -29,9 +29,9 @@ function showHelp(): void {
       `  cmaform sync [--by-id]            # rewrite YAML for every entry in state from remote; --by-id keeps raw IDs in multiagent/skills/deployment refs\n` +
       `  cmaform init                      # initialize / reconcile the state file against remote (no remote writes)\n` +
       `  cmaform plan [--verbose|-v] [target...]\n` +
-      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults/deployments or resource name)\n` +
+      `                                    # show diff (target = agents/skills/memory_stores/environments/vaults/deployments, resource name, or kind:name e.g. deployment:nightly)\n` +
       `  cmaform apply [--yes|-y] [--verbose|-v] [target...]\n` +
-      `                                    # show plan, prompt for confirmation, apply (target = kind or resource name)\n` +
+      `                                    # show plan, prompt for confirmation, apply (target = kind, resource name, or kind:name)\n` +
       `  cmaform list                      # show local files / state / remote side-by-side\n` +
       `  cmaform fmt                       # rewrite multiagent.agents[].id / skills[].skill_id in local YAML to the name form using state\n` +
       `\n` +

@@ -8,7 +8,13 @@ import { loadAllDeploymentConfigs } from '../lib/deployments.js';
 import { printPlan, type PrintPlanOptions } from '../lib/diff-render.js';
 import { loadAllEnvironmentConfigs } from '../lib/environments.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import { computePlan, filterActionsByTargets, hasChanges } from '../lib/plan.js';
+import {
+  actionKey,
+  computePlan,
+  type Action,
+  filterActionsByTargets,
+  hasChanges,
+} from '../lib/plan.js';
 import { attachDanglingReferenceWarnings, hasDanglingWarnings } from '../lib/warnings.js';
 import {
   buildResolutionContext,
@@ -21,6 +27,8 @@ import { loadAllSkillConfigs } from '../lib/skills.js';
 import { saveState } from '../lib/state.js';
 import { topoSortActions } from '../lib/topo-sort.js';
 import { loadAllVaultConfigs } from '../lib/vaults.js';
+import { createRemoteLookup } from '../lib/remote-lookup.js';
+import { reportAmbiguousRemoteName } from './ambiguous-remote.js';
 import { loadStateForPlanApply } from './state-precondition.js';
 
 export async function cmdApply(
@@ -37,59 +45,75 @@ export async function cmdApply(
   const vaults = await loadAllVaultConfigs();
   const deployments = await loadAllDeploymentConfigs();
 
-  const ctx = buildResolutionContext(state, configs, skills, environments.keys(), vaults.keys());
+  // One lookup is shared by reference resolution and the plan so each remote
+  // kind is listed at most once.
+  const lookup = createRemoteLookup();
+  let allActions: Action[];
   const resolutions = new Map<string, ResolvedConfig>();
-  const missing: string[] = [];
-  const idMismatches: string[] = [];
-  for (const [name, { config }] of configs) {
-    const r = await resolveAgentConfig(config, ctx);
-    resolutions.set(name, r);
-    for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
-    for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
-    for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
-  }
   const deploymentResolutions = new Map<string, ResolvedDeploymentConfig>();
-  for (const [localName, { config }] of deployments) {
-    const r = await resolveDeploymentConfig(config, ctx);
-    deploymentResolutions.set(localName, r);
-    for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
-    for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
-  }
-  if (missing.length > 0) {
-    process.stderr.write(
-      formatErrorHeadline(
-        'the following name-based references could not be resolved (not in state, remote, or local config):',
-      ) + '\n',
-    );
-    for (const m of missing) {
-      process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+  try {
+    const ctx = buildResolutionContext({
+      state,
+      agents: configs,
+      skills,
+      environments,
+      vaults,
+      lookup,
+    });
+    const missing: string[] = [];
+    const idMismatches: string[] = [];
+    for (const [name, { config }] of configs) {
+      const r = await resolveAgentConfig(config, ctx);
+      resolutions.set(name, r);
+      for (const m of r.missingAgentRefs) missing.push(`agent "${name}" -> agent "${m}"`);
+      for (const m of r.missingSkillRefs) missing.push(`agent "${name}" -> skill "${m}"`);
+      for (const m of r.idMismatches) idMismatches.push(`agent "${name}" -> ${m}`);
     }
-    return 2;
-  }
-  if (idMismatches.length > 0) {
-    process.stderr.write(
-      formatErrorHeadline(
-        'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):',
-      ) + '\n',
-    );
-    for (const m of idMismatches) {
-      process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+    for (const [localName, { config }] of deployments) {
+      const r = await resolveDeploymentConfig(config, ctx);
+      deploymentResolutions.set(localName, r);
+      for (const m of r.missingRefs) missing.push(`deployment "${localName}" -> ${m}`);
+      for (const m of r.idMismatches) idMismatches.push(`deployment "${localName}" -> ${m}`);
     }
-    return 2;
-  }
+    if (missing.length > 0) {
+      process.stderr.write(
+        formatErrorHeadline(
+          'the following name-based references could not be resolved (not in state, remote, or local config):',
+        ) + '\n',
+      );
+      for (const m of missing) {
+        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+      }
+      return 2;
+    }
+    if (idMismatches.length > 0) {
+      process.stderr.write(
+        formatErrorHeadline(
+          'pinned IDs in local YAML do not match the resolved IDs (either the name was reassigned or the pinned ID is stale):',
+        ) + '\n',
+      );
+      for (const m of idMismatches) {
+        process.stderr.write('  ' + formatErrorDetail(m) + '\n');
+      }
+      return 2;
+    }
 
-  const allActions = await computePlan(
-    state,
-    configs,
-    skills,
-    memoryStores,
-    environments,
-    vaults,
-    deployments,
-    resolutions,
-    deploymentResolutions,
-    { targets },
-  );
+    allActions = await computePlan(
+      state,
+      configs,
+      skills,
+      memoryStores,
+      environments,
+      vaults,
+      deployments,
+      resolutions,
+      deploymentResolutions,
+      { targets, lookup },
+    );
+  } catch (err) {
+    reportAmbiguousRemoteName(err);
+    return 2;
+  }
 
   let actions = allActions;
   if (targets.length > 0) {
@@ -108,20 +132,7 @@ export async function cmdApply(
     // Target filtering can drop forward dependencies. Surface them as a
     // hard error so the user adds them to the target list explicitly
     // (rather than failing late inside executeActions).
-    const inTarget = new Set<string>();
-    for (const a of actions) {
-      if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
-        inTarget.add(`agent:${a.name}`);
-      } else if (a.type.startsWith('skill_')) {
-        inTarget.add(`skill:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('env_')) {
-        inTarget.add(`environment:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('vault_')) {
-        inTarget.add(`vault:${(a as { localName: string }).localName}`);
-      } else if (a.type.startsWith('deploy_')) {
-        inTarget.add(`deployment:${(a as { localName: string }).localName}`);
-      }
-    }
+    const inTarget = new Set(actions.map(actionKey));
     const droppedDeps: string[] = [];
     for (const a of actions) {
       if (a.type === 'create' || a.type === 'update') {

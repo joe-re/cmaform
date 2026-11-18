@@ -50,6 +50,51 @@ describe('fieldDiffs', () => {
     expect(fieldDiffs(local, remote)).toEqual([]);
   });
 
+  it('does not report diffs for model and tool config fields echoed by the server', () => {
+    const toolset = {
+      type: 'agent_toolset_20260401',
+      default_config: { enabled: true, permission_policy: { type: 'always_allow' } },
+    };
+    const local = {
+      name: 'agent',
+      model: 'claude-opus-5',
+      tools: [
+        {
+          ...toolset,
+          configs: [
+            { name: 'web_fetch', enabled: false },
+            { name: 'web_search', enabled: false },
+          ],
+        },
+      ],
+    } as unknown as AgentConfig;
+    const remote = remoteAgent({
+      model: { id: 'claude-opus-5', speed: 'standard', effort: { type: 'high' } },
+      tools: [
+        {
+          ...toolset,
+          configs: [
+            {
+              name: 'web_fetch',
+              type: 'web_fetch',
+              enabled: false,
+              permission_policy: { type: 'always_allow' },
+              url_sources: null,
+            },
+            {
+              name: 'web_search',
+              type: 'web_search',
+              enabled: false,
+              permission_policy: { type: 'always_allow' },
+            },
+          ],
+        },
+      ],
+    } as unknown as Partial<RemoteAgent>);
+
+    expect(fieldDiffs(local, remote)).toEqual([]);
+  });
+
   it('reports changed comparable fields after normalization', () => {
     const local: AgentConfig = {
       name: 'agent',

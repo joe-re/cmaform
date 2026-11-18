@@ -7,8 +7,9 @@ import { CMAFORM_DIR, SKILLS_DIR, STATE_PATH } from '../lib/config.js';
 import { retrieveDeployment, writeDeploymentManifestFromRemote } from '../lib/deployments.js';
 import { retrieveEnvironment, writeEnvironmentManifestFromRemote } from '../lib/environments.js';
 import { retrieveMemoryStore, writeMemoryStoreManifestFromRemote } from '../lib/memory-stores.js';
-import { hashSkillDir, retrieveSkill } from '../lib/skills.js';
+import { retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState } from '../lib/state.js';
+import { UNKNOWN_SKILL_HASH } from '../lib/types.js';
 import { retrieveVault, writeVaultManifestFromRemote } from '../lib/vaults.js';
 
 export interface PullOptions {
@@ -68,7 +69,8 @@ export async function cmdPull(query: string, opts: PullOptions = {}): Promise<nu
 /**
  * Register a remote skill (by skill_id) into state.
  * The API does not return skill content, so SKILL.md is never generated.
- * If a local skill directory exists, its hash is also recorded in state.
+ * The content hash is unknown, so the next plan shows an update; an entry that
+ * already tracks the same skill id keeps its recorded hash.
  */
 async function cmdPullSkill(skillId: string): Promise<number> {
   const remote = await retrieveSkill(skillId);
@@ -80,19 +82,17 @@ async function cmdPullSkill(skillId: string): Promise<number> {
   const localName = remote.display_title;
   const dirPath = path.join(SKILLS_DIR, localName);
 
-  let hash = '';
   let dirExists = false;
   try {
     const stat = await fs.stat(dirPath);
     dirExists = stat.isDirectory();
-    if (dirExists) {
-      hash = await hashSkillDir(dirPath);
-    }
   } catch {
     /* not exists */
   }
 
   const state = await loadState();
+  const existing = state.skills[localName];
+  const hash = existing?.id === remote.id ? existing.hash : UNKNOWN_SKILL_HASH;
   state.skills[localName] = {
     id: remote.id,
     version: remote.latest_version,

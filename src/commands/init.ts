@@ -1,24 +1,24 @@
 import path from 'node:path';
 
-import { findAgentByName, retrieveAgent } from '../lib/agents.js';
+import { retrieveAgent } from '../lib/agents.js';
 import { STATE_PATH } from '../lib/config.js';
+import { loadAllDeploymentConfigs, retrieveDeployment } from '../lib/deployments.js';
+import { loadAllEnvironmentConfigs, retrieveEnvironment } from '../lib/environments.js';
+import { retrieveMemoryStore } from '../lib/memory-stores.js';
 import {
-  findDeploymentByName,
-  loadAllDeploymentConfigs,
-  retrieveDeployment,
-} from '../lib/deployments.js';
-import {
-  listEnvironments,
-  loadAllEnvironmentConfigs,
-  retrieveEnvironment,
-} from '../lib/environments.js';
-import { listMemoryStores, retrieveMemoryStore } from '../lib/memory-stores.js';
-import { findSkillByDisplayTitle, retrieveSkill } from '../lib/skills.js';
+  createRemoteLookup,
+  idsTrackedElsewhere,
+  type NameLookup,
+  type RemoteResourceKind,
+} from '../lib/remote-lookup.js';
+import { retrieveSkill } from '../lib/skills.js';
 import { loadState, saveState, stateFileExists } from '../lib/state.js';
+import { UNKNOWN_SKILL_HASH } from '../lib/types.js';
 import { loadAllAgentConfigs } from '../lib/agents.js';
 import { loadAllSkillConfigs } from '../lib/skills.js';
 import { loadAllMemoryStoreConfigs } from '../lib/memory-stores.js';
-import { listVaults, loadAllVaultConfigs, retrieveVault } from '../lib/vaults.js';
+import { loadAllVaultConfigs, retrieveVault } from '../lib/vaults.js';
+import { AMBIGUOUS_REMOTE_HINT, formatAmbiguousSkip } from './ambiguous-remote.js';
 
 /**
  * Initialize / reconcile the local state file against the current remote. Never writes to remote.
@@ -44,7 +44,25 @@ export async function cmdInit(): Promise<number> {
   const vaults = await loadAllVaultConfigs();
   const deployments = await loadAllDeploymentConfigs();
 
+  const lookup = createRemoteLookup();
   let changed = 0;
+  let skipped = 0;
+
+  // A name matching several active remote resources is never resolved by
+  // picking one: the resource is skipped and reported, and init exits non-zero.
+  const unique = <T extends { id: string }>(
+    kind: RemoteResourceKind,
+    localName: string,
+    name: string,
+    found: NameLookup<T>,
+  ): T | null => {
+    if (found.kind === 'one') return found.remote;
+    if (found.kind === 'ambiguous') {
+      process.stdout.write(formatAmbiguousSkip(kind, localName, name, found.candidates));
+      skipped++;
+    }
+    return null;
+  };
 
   // ----- agents -----
   for (const [name, entry] of Object.entries(state.agents)) {
@@ -76,7 +94,7 @@ export async function cmdInit(): Promise<number> {
   }
   for (const [name] of configs) {
     if (state.agents[name]) continue;
-    const remote = await findAgentByName(name);
+    const remote = unique('agent', name, name, await lookup.agentByName(name));
     if (remote) {
       state.agents[name] = { id: remote.id, version: remote.version };
       process.stdout.write(
@@ -112,12 +130,19 @@ export async function cmdInit(): Promise<number> {
   }
   for (const [localName, skill] of skills) {
     if (state.skills[localName]) continue;
-    const remote = await findSkillByDisplayTitle(skill.displayTitle);
+    const remote = unique(
+      'skill',
+      localName,
+      skill.displayTitle,
+      await lookup.skillByDisplayTitle(skill.displayTitle, {
+        excludeIds: idsTrackedElsewhere(state.skills, localName),
+      }),
+    );
     if (remote) {
       state.skills[localName] = {
         id: remote.id,
         version: remote.latest_version,
-        hash: skill.hash,
+        hash: UNKNOWN_SKILL_HASH,
         display_title: remote.display_title,
       };
       process.stdout.write(
@@ -149,8 +174,14 @@ export async function cmdInit(): Promise<number> {
   // For local manifests without a state entry, discover via name match on remote.
   for (const [localName, { config }] of memoryStores) {
     if (state.memory_stores[localName]) continue;
-    const remotes = await listMemoryStores();
-    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
+    const remote = unique(
+      'memory_store',
+      localName,
+      config.name,
+      await lookup.memoryStoreByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.memory_stores, localName),
+      }),
+    );
     if (remote) {
       state.memory_stores[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
@@ -181,8 +212,14 @@ export async function cmdInit(): Promise<number> {
   }
   for (const [localName, { config }] of environments) {
     if (state.environments[localName]) continue;
-    const remotes = await listEnvironments();
-    const remote = remotes.find((r) => r.name === config.name && !r.archived_at);
+    const remote = unique(
+      'environment',
+      localName,
+      config.name,
+      await lookup.environmentByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.environments, localName),
+      }),
+    );
     if (remote) {
       state.environments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
@@ -216,9 +253,13 @@ export async function cmdInit(): Promise<number> {
   }
   for (const [localName, vault] of vaults) {
     if (state.vaults[localName]) continue;
-    const remotes = await listVaults();
-    const remote = remotes.find(
-      (r) => r.display_name === vault.config.display_name && !r.archived_at,
+    const remote = unique(
+      'vault',
+      localName,
+      vault.config.display_name,
+      await lookup.vaultByDisplayName(vault.config.display_name, {
+        excludeIds: idsTrackedElsewhere(state.vaults, localName),
+      }),
     );
     if (remote) {
       state.vaults[localName] = {
@@ -253,7 +294,14 @@ export async function cmdInit(): Promise<number> {
   }
   for (const [localName, { config }] of deployments) {
     if (state.deployments[localName]) continue;
-    const remote = await findDeploymentByName(config.name);
+    const remote = unique(
+      'deployment',
+      localName,
+      config.name,
+      await lookup.deploymentByName(config.name, {
+        excludeIds: idsTrackedElsewhere(state.deployments, localName),
+      }),
+    );
     if (remote) {
       state.deployments[localName] = { id: remote.id, name: remote.name };
       process.stdout.write(
@@ -263,17 +311,20 @@ export async function cmdInit(): Promise<number> {
     }
   }
 
+  if (skipped > 0) process.stdout.write(`\n${AMBIGUOUS_REMOTE_HINT}\n`);
+  const exitCode = skipped > 0 ? 1 : 0;
+
   if (changed === 0 && stateExisted) {
     process.stdout.write('No state changes.\n');
-    return 0;
+    return exitCode;
   }
   await saveState(state);
   if (changed === 0) {
     process.stdout.write(`Initialized empty state: ${path.relative(process.cwd(), STATE_PATH)}\n`);
-    return 0;
+    return exitCode;
   }
   process.stdout.write(
     `\nState refreshed: ${changed} change(s). Saved to ${path.relative(process.cwd(), STATE_PATH)}\n`,
   );
-  return 0;
+  return exitCode;
 }

@@ -83,6 +83,7 @@ cmaform apply agents                     # all agents
 cmaform apply slack-mention-lookup       # a single skill by name
 cmaform apply release-prep --yes         # a single agent, skip confirmation
 cmaform apply skills release-prep        # all skills + one agent
+cmaform apply deployment:nightly         # only the deployment named nightly
 ```
 
 A `<target>` is either a **kind alias** (matches every resource of that type) or the **individual name** of one specific resource. Use the table below for kind aliases; anything else is treated as a resource name.
@@ -97,6 +98,8 @@ A `<target>` is either a **kind alias** (matches every resource of that type) or
 | Deployment   | `deployment` / `deployments` / `deploy` / `deploys`         | directory name under `deployments/`   | `nightly` (`deployments/nightly/`)                      |
 
 `plan` expands create / update diffs symmetrically: a new resource is rendered as `+ field: ...` blocks just like an update is rendered as `~ field: ...` blocks. Long string fields (`system`, `description`) are truncated to 3 lines plus an `... (N lines hidden)` marker. Pass `--verbose` to show full content.
+
+A bare name matches every kind. If an agent, a memory store and a deployment share a name, qualify it as `<kind>:<name>` (any kind alias above works, e.g. `deploy:nightly`) to select just one. A prefix that is not a kind alias leaves the whole string as a plain name.
 
 If you pass an individual name that doesn't exist anywhere (local YAML, state, or remote), cmaform exits with code `2`. An unmatched kind is fine — it just shows `0 to add, 0 to change, ...`.
 
@@ -400,6 +403,7 @@ cmaform reads from **the current working directory** (or `CMAFORM_DIR` if set):
 ```
 
 - Maintained by `pull` / `apply` / `sync` / `init`.
+- A resource with no state entry is looked up on remote by name and adopted instead of being created again. If several active remote resources share that name, cmaform stops with an error listing them.
 - Recommended to `.gitignore` (treat as the local source of truth, like a Terraform state file).
 - If someone shares a state file with you, run `cmaform sync` to regenerate the local YAML for every agent (skill bodies cannot be restored — see above).
 

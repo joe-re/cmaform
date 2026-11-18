@@ -63,6 +63,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
     }
     if (a.type === 'env_noop') {
       state.environments[a.localName] = { id: a.id, name: a.name };
+      createdEnvironments.set(a.localName, a.id);
       continue;
     }
     if (a.type === 'vault_noop') {
@@ -70,6 +71,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
         id: a.id,
         display_name: a.display_name,
       };
+      createdVaults.set(a.localName, a.id);
       continue;
     }
     if (a.type === 'deploy_noop') {
@@ -170,6 +172,7 @@ export async function executeActions(actions: Action[], state: State): Promise<v
         process.stdout.write(`  [~] updating environment ${JSON.stringify(a.localName)}...`);
         const updated = await updateEnvironment(a.id, a.config, a.remote);
         state.environments[a.localName] = { id: updated.id, name: updated.name };
+        createdEnvironments.set(a.localName, updated.id);
         process.stdout.write(` ok\n`);
       } else if (a.type === 'env_archive') {
         process.stdout.write(`  [-] archiving environment ${JSON.stringify(a.localName)}...`);

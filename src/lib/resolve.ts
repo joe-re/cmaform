@@ -1,26 +1,24 @@
-import { findAgentByName, retrieveAgent } from './agents.js';
-import { findEnvironmentByName } from './environments.js';
-import { findSkillByDisplayTitle } from './skills.js';
-import { findVaultByDisplayName } from './vaults.js';
+import { retrieveAgent } from './agents.js';
+import { idsTrackedElsewhere, requireUnique, type RemoteLookup } from './remote-lookup.js';
 import type {
   AgentConfig,
   DeploymentAgentRef,
   DeploymentConfig,
+  EnvironmentConfig,
   LocalSkill,
   RemoteAgent,
-  RemoteEnvironment,
-  RemoteSkill,
-  RemoteVault,
   ResolvedDeployment,
   State,
 } from './types.js';
+import type { LocalVault } from './vaults.js';
 
 /**
  * Build-time context for resolving name-based references in agent YAML.
  *
  * Lookup order:
  *   1. cmaform.state.json (`state.agents[name]` / `state.skills[localName]`)
- *   2. Remote (cached after first lookup)
+ *   2. Remote (listed once per run through `lookup`; several active matches
+ *      are an error unless the name is tracked in state)
  *   3. Local apply set (agents in local YAML / skills as local directories)
  *      → treated as a "forward dependency": replaced with a sentinel ID and
  *        resolved at apply time after the dependency is actually created.
@@ -32,34 +30,35 @@ export interface ResolutionContext {
   localAgents: Map<string, AgentConfig>;
   /** Local skills keyed by local directory name (= state key). */
   localSkills: Map<string, LocalSkill>;
-  /** Local environment directory names (= state keys). */
-  localEnvironments: Set<string>;
-  /** Local vault directory names (= state keys). */
-  localVaults: Set<string>;
-  /** Per-run cache for remote lookups by name / display_title. */
-  remoteAgentByName: Map<string, RemoteAgent | null>;
-  remoteSkillByTitle: Map<string, RemoteSkill | null>;
-  remoteEnvByName: Map<string, RemoteEnvironment | null>;
-  remoteVaultByName: Map<string, RemoteVault | null>;
+  /**
+   * Local environment directory names (= state keys) mapped to the name the
+   * environment has on remote (the manifest's `name`).
+   */
+  localEnvironments: Map<string, string>;
+  /**
+   * Local vault directory names (= state keys) mapped to the vault's remote
+   * name (the manifest's `display_name`).
+   */
+  localVaults: Map<string, string>;
+  /** Per-run cached remote name lookup, shared with `computePlan`. */
+  lookup: RemoteLookup;
 }
 
-export function buildResolutionContext(
-  state: State,
-  localAgents: Map<string, { config: AgentConfig; filePath: string }>,
-  localSkills: Map<string, LocalSkill>,
-  localEnvironments: Iterable<string> = [],
-  localVaults: Iterable<string> = [],
-): ResolutionContext {
+export function buildResolutionContext(args: {
+  state: State;
+  agents: Map<string, { config: AgentConfig; filePath: string }>;
+  skills: Map<string, LocalSkill>;
+  environments?: Map<string, { config: EnvironmentConfig }>;
+  vaults?: Map<string, LocalVault>;
+  lookup: RemoteLookup;
+}): ResolutionContext {
   return {
-    state,
-    localAgents: new Map([...localAgents].map(([k, v]) => [k, v.config])),
-    localSkills,
-    localEnvironments: new Set(localEnvironments),
-    localVaults: new Set(localVaults),
-    remoteAgentByName: new Map(),
-    remoteSkillByTitle: new Map(),
-    remoteEnvByName: new Map(),
-    remoteVaultByName: new Map(),
+    state: args.state,
+    localAgents: new Map([...args.agents].map(([k, v]) => [k, v.config])),
+    localSkills: args.skills,
+    localEnvironments: new Map([...(args.environments ?? [])].map(([k, v]) => [k, v.config.name])),
+    localVaults: new Map([...(args.vaults ?? [])].map(([k, v]) => [k, v.config.display_name])),
+    lookup: args.lookup,
   };
 }
 
@@ -129,8 +128,8 @@ export async function resolveAgentName(
 ): Promise<AgentResolution> {
   const tracked = ctx.state.agents[name];
   if (tracked) {
-    const remote = await findRemoteAgentByName(name, ctx);
-    if (!remote || remote.id !== tracked.id) {
+    const remote = await trackedAgentRemote(name, tracked.id, ctx);
+    if (!remote) {
       const byId = await retrieveAgent(tracked.id);
       if (byId && !byId.archived_at) {
         return { kind: 'resolved', id: tracked.id, version: byId.version };
@@ -139,11 +138,11 @@ export async function resolveAgentName(
     return {
       kind: 'resolved',
       id: tracked.id,
-      version: remote?.id === tracked.id ? remote.version : tracked.version,
+      version: remote ? remote.version : tracked.version,
     };
   }
 
-  const remote = await findRemoteAgentByName(name, ctx);
+  const remote = requireUnique('agent', name, await ctx.lookup.agentByName(name));
   if (remote) return { kind: 'resolved', id: remote.id, version: remote.version };
 
   if (ctx.localAgents.has(name)) {
@@ -153,16 +152,21 @@ export async function resolveAgentName(
   return { kind: 'missing' };
 }
 
-async function findRemoteAgentByName(
+/**
+ * The remote agent that is tracked in state under `name`, found through the
+ * name lookup. Several same-named agents are not an error here: the tracked id
+ * decides which one is meant. Null when the tracked id is not among the
+ * active same-named agents.
+ */
+async function trackedAgentRemote(
   name: string,
+  trackedId: string,
   ctx: ResolutionContext,
 ): Promise<RemoteAgent | null> {
-  if (ctx.remoteAgentByName.has(name)) {
-    return ctx.remoteAgentByName.get(name)!;
-  }
-  const remote = await findAgentByName(name);
-  ctx.remoteAgentByName.set(name, remote);
-  return remote;
+  const found = await ctx.lookup.agentByName(name);
+  if (found.kind === 'one') return found.remote.id === trackedId ? found.remote : null;
+  if (found.kind === 'ambiguous') return found.candidates.find((c) => c.id === trackedId) ?? null;
+  return null;
 }
 
 function agentStateEntryById(
@@ -181,8 +185,8 @@ async function agentVersionByTrackedId(
 ): Promise<{ name: string; version: number } | undefined> {
   const tracked = agentStateEntryById(id, ctx);
   if (!tracked) return undefined;
-  const remote = await findRemoteAgentByName(tracked.name, ctx);
-  if (remote?.id === id) return { name: tracked.name, version: remote.version };
+  const remote = await trackedAgentRemote(tracked.name, id, ctx);
+  if (remote) return { name: tracked.name, version: remote.version };
   const byId = await retrieveAgent(id);
   if (byId && !byId.archived_at) return { name: tracked.name, version: byId.version };
   return tracked;
@@ -229,13 +233,13 @@ export async function resolveSkillName(
   const tracked = ctx.state.skills[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
-  let remote: RemoteSkill | null;
-  if (ctx.remoteSkillByTitle.has(name)) {
-    remote = ctx.remoteSkillByTitle.get(name)!;
-  } else {
-    remote = await findSkillByDisplayTitle(name);
-    ctx.remoteSkillByTitle.set(name, remote);
-  }
+  const remote = requireUnique(
+    'skill',
+    name,
+    await ctx.lookup.skillByDisplayTitle(name, {
+      excludeIds: idsTrackedElsewhere(ctx.state.skills, name),
+    }),
+  );
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localSkills.has(name)) {
@@ -257,13 +261,17 @@ export async function resolveEnvironmentName(
   const tracked = ctx.state.environments[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
-  let remote: RemoteEnvironment | null;
-  if (ctx.remoteEnvByName.has(name)) {
-    remote = ctx.remoteEnvByName.get(name)!;
-  } else {
-    remote = await findEnvironmentByName(name);
-    ctx.remoteEnvByName.set(name, remote);
-  }
+  // A reference written as a local directory name is looked up under the
+  // manifest's remote name (the same name `computePlan` adopts by). Anything
+  // else is a best-effort lookup by the reference string itself.
+  const remoteName = ctx.localEnvironments.get(name) ?? name;
+  const remote = requireUnique(
+    'environment',
+    remoteName,
+    await ctx.lookup.environmentByName(remoteName, {
+      excludeIds: idsTrackedElsewhere(ctx.state.environments, name),
+    }),
+  );
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localEnvironments.has(name)) {
@@ -280,15 +288,14 @@ export async function resolveVaultName(
   const tracked = ctx.state.vaults[name];
   if (tracked) return { kind: 'resolved', id: tracked.id };
 
-  let remote: RemoteVault | null;
-  if (ctx.remoteVaultByName.has(name)) {
-    remote = ctx.remoteVaultByName.get(name)!;
-  } else {
-    // Best-effort remote fallback: match a vault whose display_name equals the
-    // referenced local name. Tracked state is the primary resolution source.
-    remote = await findVaultByDisplayName(name);
-    ctx.remoteVaultByName.set(name, remote);
-  }
+  const remoteName = ctx.localVaults.get(name) ?? name;
+  const remote = requireUnique(
+    'vault',
+    remoteName,
+    await ctx.lookup.vaultByDisplayName(remoteName, {
+      excludeIds: idsTrackedElsewhere(ctx.state.vaults, name),
+    }),
+  );
   if (remote) return { kind: 'resolved', id: remote.id };
 
   if (ctx.localVaults.has(name)) {

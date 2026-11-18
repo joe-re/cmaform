@@ -3,7 +3,14 @@ import { deploymentFieldDiffs, retrieveDeployment } from './deployments.js';
 import { environmentFieldDiffs, retrieveEnvironment } from './environments.js';
 import { memoryStoreFieldDiffs, retrieveMemoryStore } from './memory-stores.js';
 import type { ResolvedConfig, ResolvedDeploymentConfig } from './resolve.js';
-import { findSkillByDisplayTitle } from './skills.js';
+import {
+  createRemoteLookup,
+  idsTrackedElsewhere,
+  requireUnique,
+  type NameLookup,
+  type RemoteLookup,
+  type RemoteResourceKind,
+} from './remote-lookup.js';
 import { retrieveVault, type LocalVault } from './vaults.js';
 import type {
   AgentConfig,
@@ -92,6 +99,8 @@ export type Action =
     }
   | {
       type: 'memstore_update';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       config: MemoryStoreConfig;
@@ -101,6 +110,8 @@ export type Action =
     }
   | {
       type: 'memstore_noop';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       name: string;
@@ -119,6 +130,8 @@ export type Action =
     }
   | {
       type: 'env_update';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       config: EnvironmentConfig;
@@ -128,6 +141,8 @@ export type Action =
     }
   | {
       type: 'env_noop';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       name: string;
@@ -147,6 +162,8 @@ export type Action =
     }
   | {
       type: 'vault_noop';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       display_name: string;
@@ -168,6 +185,8 @@ export type Action =
     }
   | {
       type: 'deploy_update';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       config: ResolvedDeployment;
@@ -180,6 +199,8 @@ export type Action =
     }
   | {
       type: 'deploy_noop';
+      /** Found on remote by name rather than via state; will be recorded in state. */
+      adopted?: true;
       localName: string;
       id: string;
       name: string;
@@ -200,8 +221,9 @@ export async function computePlan(
   deployments: Map<string, { config: DeploymentConfig; dirPath: string }>,
   resolutions: Map<string, ResolvedConfig>,
   deploymentResolutions: Map<string, ResolvedDeploymentConfig>,
-  opts: { targets?: string[] } = {},
+  opts: { targets?: string[]; lookup?: RemoteLookup } = {},
 ): Promise<Action[]> {
+  const lookup = opts.lookup ?? createRemoteLookup();
   const actions: Action[] = [];
   const dynamicLatestScope = agentNamesSelectedByTargets(configs, opts.targets ?? []);
   const pendingAgentActions: Array<{
@@ -224,7 +246,7 @@ export async function computePlan(
     const forwardSkillDeps = resolution?.forwardSkillDeps ?? [];
     const latestAgentVersionRefs = resolution?.latestAgentVersionRefs ?? [];
 
-    const remote = await resolveRemote(name, state);
+    const remote = await resolveRemote(name, state, lookup);
     pendingAgentActions.push({
       name,
       filePath,
@@ -315,7 +337,13 @@ export async function computePlan(
     const tracked = state.skills[localName];
     if (!tracked) {
       // Not tracked in state, but if a remote skill with the same display_title exists, treat as update.
-      const remote = await findSkillByDisplayTitle(skill.displayTitle);
+      const remote = requireUnique(
+        'skill',
+        skill.displayTitle,
+        await lookup.skillByDisplayTitle(skill.displayTitle, {
+          excludeIds: idsTrackedElsewhere(state.skills, localName),
+        }),
+      );
       if (remote) {
         actions.push({
           type: 'skill_update',
@@ -360,8 +388,15 @@ export async function computePlan(
   // ----- memory stores -----
   for (const [localName, { config, dirPath }] of memoryStores) {
     const tracked = state.memory_stores[localName];
-    const remote = tracked ? await retrieveMemoryStore(tracked.id) : null;
-    if (!remote || remote.archived_at) {
+    const { remote, adopted } = await findExisting({
+      kind: 'memory_store',
+      name: config.name,
+      tracked,
+      retrieve: retrieveMemoryStore,
+      byName: (excludeIds) => lookup.memoryStoreByName(config.name, { excludeIds }),
+      excludeIds: idsTrackedElsewhere(state.memory_stores, localName),
+    });
+    if (!remote) {
       actions.push({ type: 'memstore_create', localName, config, dirPath });
       continue;
     }
@@ -372,6 +407,7 @@ export async function computePlan(
         localName,
         id: remote.id,
         name: remote.name,
+        ...adoptedFlag(adopted),
       });
     } else {
       actions.push({
@@ -382,6 +418,7 @@ export async function computePlan(
         remote,
         dirPath,
         diffs,
+        ...adoptedFlag(adopted),
       });
     }
   }
@@ -394,8 +431,15 @@ export async function computePlan(
   // ----- environments -----
   for (const [localName, { config, dirPath }] of environments) {
     const tracked = state.environments[localName];
-    const remote = tracked ? await retrieveEnvironment(tracked.id) : null;
-    if (!remote || remote.archived_at) {
+    const { remote, adopted } = await findExisting({
+      kind: 'environment',
+      name: config.name,
+      tracked,
+      retrieve: retrieveEnvironment,
+      byName: (excludeIds) => lookup.environmentByName(config.name, { excludeIds }),
+      excludeIds: idsTrackedElsewhere(state.environments, localName),
+    });
+    if (!remote) {
       actions.push({ type: 'env_create', localName, config, dirPath });
       continue;
     }
@@ -406,6 +450,7 @@ export async function computePlan(
         localName,
         id: remote.id,
         name: remote.name,
+        ...adoptedFlag(adopted),
       });
     } else {
       actions.push({
@@ -416,6 +461,7 @@ export async function computePlan(
         remote,
         dirPath,
         diffs,
+        ...adoptedFlag(adopted),
       });
     }
   }
@@ -433,9 +479,16 @@ export async function computePlan(
   // settles. Credentials are not managed by cmaform yet.
   for (const [localName, vault] of vaults) {
     const tracked = state.vaults[localName];
-    const remote = tracked ? await retrieveVault(tracked.id) : null;
+    const { remote, adopted } = await findExisting({
+      kind: 'vault',
+      name: vault.config.display_name,
+      tracked,
+      retrieve: retrieveVault,
+      byName: (excludeIds) => lookup.vaultByDisplayName(vault.config.display_name, { excludeIds }),
+      excludeIds: idsTrackedElsewhere(state.vaults, localName),
+    });
 
-    if (!remote || remote.archived_at) {
+    if (!remote) {
       actions.push({
         type: 'vault_create',
         localName,
@@ -448,6 +501,7 @@ export async function computePlan(
         localName,
         id: remote.id,
         display_name: remote.display_name,
+        ...adoptedFlag(adopted),
       });
     }
   }
@@ -468,14 +522,27 @@ export async function computePlan(
       forwardVaultDeps: resolution.forwardVaultDeps,
     };
     const tracked = state.deployments[localName];
-    const remote = tracked ? await retrieveDeployment(tracked.id) : null;
-    if (!remote || remote.archived_at) {
+    const { remote, adopted } = await findExisting({
+      kind: 'deployment',
+      name: config.name,
+      tracked,
+      retrieve: retrieveDeployment,
+      byName: (excludeIds) => lookup.deploymentByName(config.name, { excludeIds }),
+      excludeIds: idsTrackedElsewhere(state.deployments, localName),
+    });
+    if (!remote) {
       actions.push({ type: 'deploy_create', localName, config, dirPath, ...forwardDeps });
       continue;
     }
     const diffs = deploymentFieldDiffs(config, remote);
     if (diffs.length === 0) {
-      actions.push({ type: 'deploy_noop', localName, id: remote.id, name: remote.name });
+      actions.push({
+        type: 'deploy_noop',
+        localName,
+        id: remote.id,
+        name: remote.name,
+        ...adoptedFlag(adopted),
+      });
     } else {
       actions.push({
         type: 'deploy_update',
@@ -486,6 +553,7 @@ export async function computePlan(
         dirPath,
         diffs,
         ...forwardDeps,
+        ...adoptedFlag(adopted),
       });
     }
   }
@@ -498,20 +566,47 @@ export async function computePlan(
   return actions;
 }
 
+function adoptedFlag(adopted: boolean): { adopted?: true } {
+  return adopted ? { adopted: true } : {};
+}
+
+/**
+ * Find the remote resource backing a local manifest: the tracked id when it is
+ * still active, otherwise a unique active resource with the same name (which
+ * is then "adopted"). Throws AmbiguousRemoteNameError on several candidates.
+ */
+async function findExisting<R extends { id: string; archived_at?: string | null }>(args: {
+  kind: RemoteResourceKind;
+  name: string;
+  tracked: { id: string } | undefined;
+  retrieve: (id: string) => Promise<R | null>;
+  byName: (excludeIds: ReadonlySet<string>) => Promise<NameLookup<R & { created_at?: string }>>;
+  excludeIds: ReadonlySet<string>;
+}): Promise<{ remote: R | null; adopted: boolean }> {
+  if (args.tracked) {
+    const byId = await args.retrieve(args.tracked.id);
+    if (byId && !byId.archived_at) return { remote: byId, adopted: false };
+  }
+  const byName = requireUnique(args.kind, args.name, await args.byName(args.excludeIds));
+  return { remote: byName, adopted: byName !== null };
+}
+
 function agentNamesSelectedByTargets(
   configs: Map<string, { config: AgentConfig; filePath: string }>,
   targets: string[],
 ): Set<string> {
   if (targets.length === 0) return new Set(configs.keys());
 
+  const { kinds, names, qualified } = parseTargets(targets);
   const selected = new Set<string>();
-  for (const target of targets) {
-    const kind = RESOURCE_KIND_ALIASES[target];
-    if (kind === 'agent') {
-      for (const name of configs.keys()) selected.add(name);
-    } else if (!kind && configs.has(target)) {
-      selected.add(target);
-    }
+  if (kinds.has('agent')) {
+    for (const name of configs.keys()) selected.add(name);
+  }
+  for (const name of names) {
+    if (configs.has(name)) selected.add(name);
+  }
+  for (const q of qualified) {
+    if (q.kind === 'agent' && configs.has(q.name)) selected.add(q.name);
   }
   return selected;
 }
@@ -547,14 +642,14 @@ function markLatestAgentVersions(
 
 type ResourceKind = 'agent' | 'skill' | 'memory_store' | 'environment' | 'vault' | 'deployment';
 
-function actionResourceName(a: Action): string {
+export function actionResourceName(a: Action): string {
   if (a.type === 'create' || a.type === 'update' || a.type === 'noop' || a.type === 'delete') {
     return a.name;
   }
   return (a as { localName: string }).localName;
 }
 
-function actionResourceKind(a: Action): ResourceKind {
+export function actionResourceKind(a: Action): ResourceKind {
   if (a.type.startsWith('skill_')) return 'skill';
   if (a.type.startsWith('memstore_')) return 'memory_store';
   if (a.type.startsWith('env_')) return 'environment';
@@ -584,33 +679,76 @@ const RESOURCE_KIND_ALIASES: Record<string, ResourceKind> = {
   deploys: 'deployment',
 };
 
+/** `<kind>:<name>` identifying one action, e.g. `deployment:nightly`. */
+export function actionKey(a: Action): string {
+  return `${actionResourceKind(a)}:${actionResourceName(a)}`;
+}
+
+interface ParsedTargets {
+  /** bare kind aliases (`agents`, `deploy`, ...): every resource of the kind */
+  kinds: Set<ResourceKind>;
+  /** bare names: resources of any kind with that name */
+  names: Set<string>;
+  /** `<kind>:<name>` targets, with the original string kept for reporting */
+  qualified: { kind: ResourceKind; name: string; raw: string }[];
+}
+
+/**
+ * Split targets into kinds, bare names and `<kind>:<name>` pairs. A string
+ * whose part before the first `:` is not a kind alias is a bare name, so
+ * names that contain `:` keep working.
+ */
+function parseTargets(targets: string[]): ParsedTargets {
+  const kinds = new Set<ResourceKind>();
+  const names = new Set<string>();
+  const qualified: ParsedTargets['qualified'] = [];
+  for (const t of targets) {
+    const bareKind = RESOURCE_KIND_ALIASES[t];
+    if (bareKind) {
+      kinds.add(bareKind);
+      continue;
+    }
+    const colon = t.indexOf(':');
+    const qualifiedKind = colon > 0 ? RESOURCE_KIND_ALIASES[t.slice(0, colon)] : undefined;
+    if (qualifiedKind) {
+      qualified.push({ kind: qualifiedKind, name: t.slice(colon + 1), raw: t });
+    } else {
+      names.add(t);
+    }
+  }
+  return { kinds, names, qualified };
+}
+
 export function filterActionsByTargets(
   actions: Action[],
   targets: string[],
 ): { filtered: Action[]; unmatched: string[] } {
-  const kindTargets = new Set<ResourceKind>();
-  const nameTargets = new Set<string>();
-  for (const t of targets) {
-    const kind = RESOURCE_KIND_ALIASES[t];
-    if (kind) {
-      kindTargets.add(kind);
-    } else {
-      nameTargets.add(t);
-    }
-  }
+  const { kinds, names, qualified } = parseTargets(targets);
 
   const matchedNames = new Set<string>();
+  const matchedQualified = new Set<string>();
   const filtered: Action[] = [];
   for (const a of actions) {
     const kind = actionResourceKind(a);
     const name = actionResourceName(a);
-    if (kindTargets.has(kind) || nameTargets.has(name)) {
-      if (nameTargets.has(name)) matchedNames.add(name);
-      filtered.push(a);
+    let selected = kinds.has(kind);
+    if (names.has(name)) {
+      matchedNames.add(name);
+      selected = true;
     }
+    for (const q of qualified) {
+      if (q.kind === kind && q.name === name) {
+        matchedQualified.add(q.raw);
+        selected = true;
+      }
+    }
+    if (selected) filtered.push(a);
   }
 
-  const unmatched = [...nameTargets].filter((n) => !matchedNames.has(n));
+  const unmatched = [
+    ...[...names].filter((n) => !matchedNames.has(n)),
+    ...qualified.filter((q) => !matchedQualified.has(q.raw)).map((q) => q.raw),
+  ];
   return { filtered, unmatched };
 }
 

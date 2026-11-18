@@ -83,6 +83,7 @@ cmaform apply agents                     # agent だけ全部 apply
 cmaform apply slack-mention-lookup       # skill 1 件だけ
 cmaform apply release-prep --yes         # agent 1 件だけ (確認スキップ)
 cmaform apply skills release-prep        # 全 skill + release-prep agent
+cmaform apply deployment:nightly         # nightly という名前の deployment だけ
 ```
 
 `<target>` は **種別の別名** (= その種類のリソース全体に一致) か、**個別リソースの名前** (= 1 つのリソースだけに一致) のどちらかとして解釈されます。下表の別名のいずれにも当たらない場合、target は個別リソース名として扱われます。
@@ -97,6 +98,8 @@ cmaform apply skills release-prep        # 全 skill + release-prep agent
 | Deployment   | `deployment` / `deployments` / `deploy` / `deploys`         | `deployments/` 配下のディレクトリ名   | `nightly` (`deployments/nightly/`)                      |
 
 `plan` は create / update の diff を対称な形式で展開します。新規リソースは `+ field: ...` ブロック、更新は `~ field: ...` ブロックで表示されます。長い文字列フィールド (`system` / `description`) は冒頭 3 行 + `... (N lines hidden)` で折りたたまれます。`--verbose` を付けると全文表示になります。
+
+素の名前は全種別に一致します。agent・memory store・deployment が同名のときは `<kind>:<name>` 形式 (上の別名のどれでも可。例: `deploy:nightly`) で 1 つだけ選べます。`:` より前が種別の別名でなければ、文字列全体を素の名前として扱います。
 
 個別名を指定して local YAML / state / remote のどこにも見つからない場合は exit code `2` でエラー終了します。種別を指定して該当 0 件の場合はエラーになりません (`0 to add, 0 to change, ...` と出るだけ)。
 
@@ -399,6 +402,7 @@ cmaform は **コマンド実行時の cwd** (または `CMAFORM_DIR` で指定�
 ```
 
 - `pull` / `apply` / `sync` / `init` で更新されます
+- state にエントリが無いリソースは、重複作成せず remote を名前で探して取り込みます。同名の active なリソースが複数あるときはエラーにして候補を列挙します
 - **`.gitignore` 推奨** (Terraform state ファイルと同様に、ローカルの真実として扱う)
 - 共有された state があれば、`cmaform sync` で agent 用 YAML を一括生成できます (skill 本体ファイルは前述の通り復元できません)
 

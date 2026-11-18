@@ -1,55 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Safety net: every name lookup in these tests goes through the per-run cache
-// (`ResolutionContext.remoteAgentByName` / `remoteSkillByTitle`), which is
-// pre-populated by `makeCtx`. If a test ever asks `resolveAgentConfig` about
-// a name we didn't pre-cache, the code under test would fall through to the
-// real SDK call — which would either hit the network or fail auth. Mock those
-// two helpers so any such accidental fall-through throws a loud, descriptive
-// error instead.
+// Safety net: name lookups in these tests go through a fake `RemoteLookup`
+// that only knows the names a test seeds via `makeCtx`. Asking about any other
+// name throws a loud error instead of silently reporting "not on remote".
+// `retrieveAgent` is mocked so accidental SDK calls fail the same way.
 vi.mock('./agents.js', () => {
   return {
-    findAgentByName: vi.fn((name: string) => {
-      throw new Error(
-        `findAgentByName(${JSON.stringify(name)}) should not be reached in tests — pre-populate remoteAgentByName in makeCtx().`,
-      );
-    }),
     retrieveAgent: vi.fn((id: string) => {
       throw new Error(
         `retrieveAgent(${JSON.stringify(id)}) should not be reached in tests — mock retrieveAgent explicitly when resolving raw IDs.`,
-      );
-    }),
-  };
-});
-vi.mock('./skills.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./skills.js')>();
-  return {
-    ...actual,
-    findSkillByDisplayTitle: vi.fn((title: string) => {
-      throw new Error(
-        `findSkillByDisplayTitle(${JSON.stringify(title)}) should not be reached in tests — pre-populate remoteSkillByTitle in makeCtx().`,
-      );
-    }),
-  };
-});
-vi.mock('./environments.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./environments.js')>();
-  return {
-    ...actual,
-    findEnvironmentByName: vi.fn((name: string) => {
-      throw new Error(
-        `findEnvironmentByName(${JSON.stringify(name)}) should not be reached in tests — use state or env_ ids.`,
-      );
-    }),
-  };
-});
-vi.mock('./vaults.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./vaults.js')>();
-  return {
-    ...actual,
-    findVaultByDisplayName: vi.fn((name: string) => {
-      throw new Error(
-        `findVaultByDisplayName(${JSON.stringify(name)}) should not be reached in tests — use state or vlt_ ids.`,
       );
     }),
   };
@@ -68,12 +27,15 @@ import {
   substitutePendingIds,
   type ResolutionContext,
 } from './resolve.js';
+import { AmbiguousRemoteNameError, type NameLookup, type RemoteLookup } from './remote-lookup.js';
 import type {
   AgentConfig,
   DeploymentConfig,
   LocalSkill,
   RemoteAgent,
+  RemoteEnvironment,
   RemoteSkill,
+  RemoteVault,
   State,
 } from './types.js';
 
@@ -93,26 +55,56 @@ function emptyState(): State {
   };
 }
 
+/** Seeded remote names: `null` = confirmed missing, an array = several active matches. */
+type Seed<T> = Record<string, T | T[] | null>;
+
+function fakeLookupFn<T extends { id: string }>(label: string, seed: Seed<T>) {
+  return async (name: string, lookupOpts?: { excludeIds?: ReadonlySet<string> }) => {
+    if (!(name in seed)) {
+      throw new Error(`${label}(${JSON.stringify(name)}) was not seeded in makeCtx().`);
+    }
+    const value = seed[name];
+    const all = value === null ? [] : Array.isArray(value) ? value : [value];
+    const candidates = all.filter((r) => !lookupOpts?.excludeIds?.has(r.id));
+    const result: NameLookup<T> =
+      candidates.length === 0
+        ? { kind: 'none' }
+        : candidates.length === 1
+          ? { kind: 'one', remote: candidates[0] }
+          : { kind: 'ambiguous', candidates };
+    return result;
+  };
+}
+
 function makeCtx(
   opts: {
     state?: State;
     localAgents?: Record<string, AgentConfig>;
     localSkills?: Record<string, LocalSkill>;
-    /** Pre-seeded remote agent lookups. `null` = name confirmed missing on remote. */
-    remoteAgents?: Record<string, RemoteAgent | null>;
-    remoteSkills?: Record<string, RemoteSkill | null>;
+    /** Local environment dir name -> manifest name (the name used on remote). */
+    localEnvironments?: Record<string, string>;
+    localVaults?: Record<string, string>;
+    remoteAgents?: Seed<RemoteAgent>;
+    remoteSkills?: Seed<RemoteSkill>;
+    remoteEnvs?: Seed<RemoteEnvironment>;
+    remoteVaults?: Seed<RemoteVault>;
   } = {},
 ): ResolutionContext {
+  const lookup: RemoteLookup = {
+    agentByName: fakeLookupFn('agentByName', opts.remoteAgents ?? {}),
+    skillByDisplayTitle: fakeLookupFn('skillByDisplayTitle', opts.remoteSkills ?? {}),
+    environmentByName: fakeLookupFn('environmentByName', opts.remoteEnvs ?? {}),
+    vaultByDisplayName: fakeLookupFn('vaultByDisplayName', opts.remoteVaults ?? {}),
+    memoryStoreByName: fakeLookupFn('memoryStoreByName', {}),
+    deploymentByName: fakeLookupFn('deploymentByName', {}),
+  };
   return {
     state: opts.state ?? emptyState(),
     localAgents: new Map(Object.entries(opts.localAgents ?? {})),
     localSkills: new Map(Object.entries(opts.localSkills ?? {})),
-    localEnvironments: new Set(),
-    localVaults: new Set(),
-    remoteAgentByName: new Map(Object.entries(opts.remoteAgents ?? {})),
-    remoteSkillByTitle: new Map(Object.entries(opts.remoteSkills ?? {})),
-    remoteEnvByName: new Map(),
-    remoteVaultByName: new Map(),
+    localEnvironments: new Map(Object.entries(opts.localEnvironments ?? {})),
+    localVaults: new Map(Object.entries(opts.localVaults ?? {})),
+    lookup,
   };
 }
 
@@ -590,16 +582,16 @@ describe('resolveDeploymentConfig', () => {
   });
 
   it('records forward dependencies for resources created in the same apply set', async () => {
-    // Pre-seed the remote caches to `null` so resolution falls through to the
-    // local apply set instead of hitting the (mocked, throwing) remote lookups.
+    // Seed the remote lookups as empty so resolution falls through to the
+    // local apply set.
     const ctx = makeCtx({
       localAgents: { 'spec-qa': { name: 'spec-qa' } },
       remoteAgents: { 'spec-qa': null },
+      localEnvironments: { 'python-dev': 'python-dev' },
+      localVaults: { 'bot-vault': 'bot-vault' },
+      remoteEnvs: { 'python-dev': null },
+      remoteVaults: { 'bot-vault': null },
     });
-    ctx.remoteEnvByName.set('python-dev', null);
-    ctx.remoteVaultByName.set('bot-vault', null);
-    ctx.localEnvironments.add('python-dev');
-    ctx.localVaults.add('bot-vault');
 
     const r = await resolveDeploymentConfig(baseDeployment({ vault_ids: ['bot-vault'] }), ctx);
     expect(r.forwardAgentDeps).toEqual(['spec-qa']);
@@ -611,8 +603,10 @@ describe('resolveDeploymentConfig', () => {
   });
 
   it('reports unresolved references as missing', async () => {
-    const ctx = makeCtx({ remoteAgents: { 'spec-qa': null } });
-    ctx.remoteEnvByName.set('no-such-env', null);
+    const ctx = makeCtx({
+      remoteAgents: { 'spec-qa': null },
+      remoteEnvs: { 'no-such-env': null },
+    });
     const r = await resolveDeploymentConfig(baseDeployment({ environment: 'no-such-env' }), ctx);
     // agent is missing (not in state, remote null, not local) and so is the env.
     expect(r.missingRefs).toContain('agent "spec-qa"');
@@ -630,5 +624,79 @@ describe('resolveDeploymentConfig', () => {
       ctx,
     );
     expect(r.idMismatches).toEqual(['agent "spec-qa" pinned id=agent_WRONG, resolved id=agent_1']);
+  });
+
+  it('looks an untracked environment up by its manifest name when referenced by directory name', async () => {
+    const remoteEnv = { id: 'env_remote', name: 'Python Dev' } as RemoteEnvironment;
+    const ctx = makeCtx({
+      remoteAgents: { 'spec-qa': null },
+      localAgents: { 'spec-qa': { name: 'spec-qa' } },
+      localEnvironments: { 'python-dev': 'Python Dev' },
+      // Only the manifest name is seeded: asking for "python-dev" would throw.
+      remoteEnvs: { 'Python Dev': remoteEnv },
+    });
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.config.environment_id).toBe('env_remote');
+    expect(r.forwardEnvDeps).toEqual([]);
+  });
+
+  it('does not match an environment already tracked under another local name', async () => {
+    const state = emptyState();
+    state.environments['old-dir'] = { id: 'env_remote', name: 'Python Dev' };
+    const ctx = makeCtx({
+      state,
+      remoteAgents: { 'spec-qa': null },
+      localAgents: { 'spec-qa': { name: 'spec-qa' } },
+      localEnvironments: { 'python-dev': 'Python Dev' },
+      remoteEnvs: { 'Python Dev': { id: 'env_remote', name: 'Python Dev' } as RemoteEnvironment },
+    });
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.forwardEnvDeps).toEqual(['python-dev']);
+  });
+
+  it('throws when an untracked environment name matches several active remotes', async () => {
+    const ctx = makeCtx({
+      remoteAgents: { 'spec-qa': null },
+      remoteEnvs: {
+        'python-dev': [
+          { id: 'env_1', name: 'python-dev' },
+          { id: 'env_2', name: 'python-dev' },
+        ] as RemoteEnvironment[],
+      },
+    });
+    await expect(resolveDeploymentConfig(baseDeployment(), ctx)).rejects.toBeInstanceOf(
+      AmbiguousRemoteNameError,
+    );
+  });
+
+  it('resolves a tracked agent even when several remote agents share its name', async () => {
+    const state = emptyState();
+    state.agents['spec-qa'] = { id: 'agent_2', version: 3 };
+    state.environments['python-dev'] = { id: 'env_1', name: 'python-dev' };
+    const ctx = makeCtx({
+      state,
+      remoteAgents: {
+        'spec-qa': [
+          { id: 'agent_1', version: 1 },
+          { id: 'agent_2', version: 7 },
+        ] as RemoteAgent[],
+      },
+    });
+    const r = await resolveDeploymentConfig(baseDeployment(), ctx);
+    expect(r.config.agent.id).toBe('agent_2');
+  });
+
+  it('throws when an untracked agent name matches several active remotes', async () => {
+    const ctx = makeCtx({
+      remoteAgents: {
+        'spec-qa': [
+          { id: 'agent_1', version: 1 },
+          { id: 'agent_2', version: 7 },
+        ] as RemoteAgent[],
+      },
+    });
+    await expect(resolveDeploymentConfig(baseDeployment(), ctx)).rejects.toBeInstanceOf(
+      AmbiguousRemoteNameError,
+    );
   });
 });
