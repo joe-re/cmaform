@@ -1,7 +1,11 @@
 import path from 'node:path';
 
 /**
- * Anthropic Skills beta header value required by `beta.skills.*` endpoints.
+ * Beta header passed on every Skills API call. cmaform reads and writes the
+ * `skills-2025-10-02` shapes (`display_title`, `latest_version`, timestamp
+ * version ids). The SDK stopped adding this header itself in 0.122.0, and
+ * without it the API answers in the GA shape, so each `beta.skills.*` call
+ * must pass it explicitly.
  */
 export const SKILLS_BETA = 'skills-2025-10-02';
 

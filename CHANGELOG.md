@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Updated `@anthropic-ai/sdk` to `^0.137.0`. Memory store requests now send the
+  `agent-memory-2026-07-22` beta header instead of `managed-agents-2026-04-01`
+  (the SDK picks it). Skills requests are unchanged: cmaform keeps sending
+  `skills-2025-10-02` and reading that shape.
+
 ## [0.5.0] - 2026-11-19
 
 ### Added
