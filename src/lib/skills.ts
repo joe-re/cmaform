@@ -163,11 +163,13 @@ async function buildSkillUploadables(skill: LocalSkill) {
 
 export async function createSkill(skill: LocalSkill): Promise<RemoteSkill> {
   const files = await buildSkillUploadables(skill);
+  // `display_title` is the `skills-2025-10-02` name of this field. The SDK
+  // types describe the GA shape (`display_name`), so the params need a cast.
   const created = await anthropic.beta.skills.create({
     display_title: skill.displayTitle,
     files,
     betas: [SKILLS_BETA],
-  });
+  } as unknown as Parameters<typeof anthropic.beta.skills.create>[0]);
   return created as unknown as RemoteSkill;
 }
 
