@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
 ### Added
 
 - `plan` / `apply` accept kind-qualified targets (`<kind>:<name>`, e.g.
@@ -187,7 +189,8 @@ Initial public release.
 - `dist/cli.js.map` is intentionally not shipped in the npm tarball.
 - `pnpm audit` clean against `@anthropic-ai/sdk` 0.98.0 and `yaml` 2.x.
 
-[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/joe-re/cmaform/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/joe-re/cmaform/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/joe-re/cmaform/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/joe-re/cmaform/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/joe-re/cmaform/releases/tag/v0.2.1
